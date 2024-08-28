@@ -94,7 +94,7 @@ end
 ude_lotka!(du, u, p, t) = ude_lotka!(du, u, p, t, [1.3, 1.8])
 
 probs_nn = [
-  ODEProblem(ude_lotka!, population_data[i][:,1] , tspan, ComponentArray(neural=p_neural, conditional=p_conditional)) for i in 1:number_of_populations
+  ODEProblem(ude_lotka!, population_data[i][:,1] , tspan, ComponentArray(neural=p_neural, conditional=p_conditional)) for i in eachindex(population_data)
 ]
 
 function loss(θ, (probs, data, timepoints))
@@ -114,9 +114,9 @@ n_sampled = 1000
 initial_losses = Float64[]
 initial_p = []
 for i in 1:n_sampled
-  p_conditional = [-1.0, -1.0, -1.0, -1.0, -1.0]
-  p_neural, st = Lux.setup(rng, U)
-  p_init = ComponentArray(neural=ComponentVector(p_neural), conditional=repeat(p_conditional, 1,number_of_populations))
+  p_conditional_ = [-1.0, -1.0, -1.0, -1.0, -1.0]
+  p_neural_, _ = Lux.setup(rng, U)
+  p_init = ComponentArray(neural=ComponentVector(p_neural_), conditional=repeat(p_conditional_, 1,length(population_data)))
   push!(initial_losses, loss(p_init, (probs_nn, population_data, timepoints)))
   push!(initial_p, p_init)
 end
@@ -139,11 +139,11 @@ adtype = Optimization.AutoForwardDiff()
 optf = Optimization.OptimizationFunction(loss, adtype)
 optprob = Optimization.OptimizationProblem(optf, initial_parameters, (probs_nn, population_data, timepoints))
 
-res1 = Optimization.solve(optprob, OptimizationOptimisers.Adam(), callback = callback, maxiters = 2000)
+res1 = Optimization.solve(optprob, OptimizationOptimisers.Adam(), callback = callback, maxiters = 5000)
 println("Training loss after $(length(losses)) iterations: $(losses[end])")
 
 optprob2 = Optimization.OptimizationProblem(optf, res1.u, (probs_nn, population_data, timepoints))
-res2 = Optimization.solve(optprob2, LBFGS(linesearch = BackTracking()), callback = callback, maxiters = 3000)
+res2 = Optimization.solve(optprob2, LBFGS(linesearch = BackTracking()), callback = callback, maxiters = 5000)
 println("Final training loss after $(length(losses)) iterations: $(losses[end])")
 
 # Rename the best candidate
@@ -153,16 +153,16 @@ p_trained = res2.u
 figure_losses = let f = Figure(backgroundcolor=:transparent,size=(500,250))
 
     ax = Axis(f[1, 1], xlabel = "Iterations", ylabel = "Loss", yscale=log10)
-    lines!(ax, 1:2000, losses[1:2000], color = Makie.ColorSchemes.tab10[1], label="Adam")
-    lines!(ax, 2001:length(losses), losses[2001:end], color = Makie.ColorSchemes.tab10[2], label="LBFGS")
+    lines!(ax, 1:5000, losses[1:5000], color = Makie.ColorSchemes.tab10[1], label="Adam")
+    lines!(ax, 5001:length(losses), losses[5001:end], color = Makie.ColorSchemes.tab10[2], label="LBFGS")
     Legend(f[1,2], ax)
     f
 end
 
-# save("lotka-volterra/figs/conditional-losses.png", figure_losses, px_per_unit = 2)
+save("conditional-losses.png", figure_losses, px_per_unit = 2)
 
 
-figure_model_fit = let f = Figure(backgroundcolor=:transparent, size=(1600,250))
+figure_model_fit = let f = Figure(backgroundcolor=:transparent, size=(3200,250))
   for (i,prob) in enumerate(probs_nn)
     p_prob = ComponentArray(neural=p_trained.neural, conditional=p_trained.conditional[:,i])
 
@@ -196,14 +196,14 @@ fig_pca_plot = let f = Figure(size=(400,200))
 
     ax1 = Axis(f[1,1], xlabel="PCA_1", ylabel="PCA_2")
     ax2 = Axis(f[1,2], xlabel="b", ylabel="c")
-    for i in 1:8
+    for i in 1:length(population_data)
         scatter!(ax1, pca_out[1,i], pca_out[2,i], color=Makie.ColorSchemes.tab10[i])
         scatter!(ax2, p2[i], p3[i], color=Makie.ColorSchemes.tab10[i])
     end
     f 
 end
-   
-#save("lotka-volterra/figs/model_fit_conditional.png", figure_model_fit, px_per_unit = 2)
+save("pca_plot.png", fig_pca_plot, px_per_unit=2)
+save("model_fit_conditional.png", figure_model_fit, px_per_unit = 2)
 
 # simulate new data
 # population_data_test = []
