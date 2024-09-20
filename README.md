@@ -4,12 +4,30 @@ Repository accompanying the manuscript on conditional universal differential equ
 ![Conditional UDE](assets/cude_schema.png)
 
 ## What is a conditional UDE?
-Whereas universal differential equations do not directly accomodate the derivation of model components from data containing variability between samples, such as measurements on individuals in a population, the conditional UDE, combined with its specific training procedure, accounts for this through additional learnable inputs. 
+Whereas universal differential equations do not directly accommodate the derivation of model components from data containing variability between samples, such as measurements on individuals in a population, the conditional UDE, combined with its specific training procedure, accounts for this through additional learnable inputs. 
 
 A cUDE is trained with a global neural network parameter set, and a set of conditional parameters that allow for explanation of the between-sample variability. This setup does then require a test set, where the neural network parameters are fixed and only the conditional parameters are estimated.
 
 ## Files in this repository
 <!-- TODO: add explanation -->
+
+## Dependencies
+Used packages and versions are documented in the `Project.toml` file. Julia's package manager `pkg` automatically takes care of installing the correct versions. To install the dependencies, open Julia in the repository path.
+
+```
+julia
+```
+
+Select the package manager by pressing `]`, and activate the environment.
+
+```
+pkg> activate .
+```
+
+Instantiate the environment to install the packages:
+```
+pkg> instantiate
+```
 
 ## Data sources
 The glucose, insulin, and c-peptide data during both the OGTT and the hyperglycemic clamp were originally taken from Okuno et al. (2013)[^1], and also used by Ohashi et al. (2015)[^2] and Ohashi et al. (2018)[^3].

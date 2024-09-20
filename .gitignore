@@ -25,3 +25,8 @@ Manifest.toml
 
 # Visual studio code settings
 .vscode
+
+legacy
+
+others
+.DS_Store
