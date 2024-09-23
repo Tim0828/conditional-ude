@@ -1,6 +1,6 @@
 # Model fit to the train data and evaluation on the test data
 
-using JLD2, StableRNGs, CairoMakie
+using JLD2, StableRNGs, CairoMakie, DataFrames, CSV
 
 rng = StableRNG(232705)
 
@@ -19,7 +19,7 @@ models_train = [
 ]
 
 # train models 
-optsols_train = fit_ohashi_ude(models_train, chain, loss_function_train, train_data.timepoints, train_data.cpeptide, 100, 1, rng, create_progressbar_callback);
+optsols_train = fit_ohashi_ude(models_train, chain, loss_function_train, train_data.timepoints, train_data.cpeptide, 10_000, 10, rng, create_progressbar_callback);
 objectives_train = [optsol.objective for optsol in optsols_train]
 
 # select the best neural net parameters
@@ -110,3 +110,14 @@ end
 #     neural_network_parameters = neural_network_parameters,
 #     betas_test = [optsol.u[1] for optsol in optsols_test]
 # )
+
+# save the data for the symbolic regression
+beta_range = LinRange(minimum(betas_combined), maximum(betas_combined), 20)
+glucose_range = LinRange(0.0, maximum(ohashi_glucose .- ohashi_glucose[:,1]), 20)
+
+colnames = ["Beta", "Glucose", "Production"]
+data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
+data = hcat(reshape(data, 20*20)...)
+
+df = DataFrame(data', colnames)
+CSV.write("data/ohashi_production.csv", df)

@@ -65,3 +65,34 @@ jldsave(
         auc_iri=auc_iri[testing_indices]
     )
 )
+
+# illustration of clamp data
+clamp_data = DataFrame(CSV.File("data/ohashi_csv/ohashi_clamp_blood.csv", delim=';', decimal=','))
+
+clamp_data_filtered = clamp_data[clamp_data[!,:No] .∈ Ref(subject_numbers), :]
+clamp_insulin_data = Matrix{Float64}(clamp_data_filtered[:, 12:18])
+clamp_insulin_timepoints = [0,5,10,15,60,75,90]
+
+figure_clamp_insulin = let fig
+    fig = Figure(size=(400,400))
+    ax = Axis(fig[1,1], xlabel="Time (min)", ylabel="Insulin (mU/L)")
+    for (i, type) in enumerate(["NGT", "T2DM"])
+        type_indices = types .== type
+        mean_insulin = mean(clamp_insulin_data[type_indices,:], dims=1)[:]
+        std_insulin = std(clamp_insulin_data[type_indices,:], dims=1)[:] ./ sqrt(sum(type_indices)) # standard error
+        band!(ax, clamp_insulin_timepoints, repeat([mean_insulin[1]], length(mean_insulin)), mean_insulin, color=(Makie.ColorSchemes.tab10[i], 0.3), label=type)
+        lines!(ax, clamp_insulin_timepoints, mean_insulin, color=(Makie.ColorSchemes.tab10[i], 1), linewidth=2, label=type)
+        scatter!(ax, clamp_insulin_timepoints, mean_insulin, color=(Makie.ColorSchemes.tab10[i], 1), markersize=10)
+    end
+
+    vlines!(ax, [10], color=:black, linestyle=:dash, linewidth=1)
+    text!(ax, -12, 60;text="1ˢᵗ phase")
+    text!(ax, 45, 60;text="2ⁿᵈ phase")
+
+
+
+    Legend(fig[2,1], ax, orientation=:horizontal, merge=true)
+    fig
+end
+
+save("figures/supplementary/illustration_clamp_insulin.png", figure_clamp_insulin, px_per_unit=4)

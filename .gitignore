@@ -30,3 +30,6 @@ legacy
 
 others
 .DS_Store
+
+# Python
+poetry.lock

@@ -1,0 +1,29 @@
+from pysr import PySRRegressor
+import pandas as pd
+import numpy as np
+
+# Load the data
+data = pd.read_csv("data/ohashi_production.csv")
+data
+
+X = np.array(data.loc[:,["Beta", "Glucose"]])
+y = np.array(data.loc[:, "Production"])
+
+# define the pySR model
+model = PySRRegressor(
+    niterations=250000,
+    binary_operators=["+", "*", "^"],
+    unary_operators=[
+        "inv(x) = 1/x",
+        "neg(x)=-x"
+        # ^ Custom operator (julia syntax)
+    ],
+    constraints = {"^": (9,1)},
+    extra_sympy_mappings={"inv": lambda x: 1 / x, "neg": lambda x: -x},
+    # ^ Define operator for SymPy as well
+    procs=8
+)
+
+# fit the model
+model.fit(X, y)
+
