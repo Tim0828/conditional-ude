@@ -11,7 +11,7 @@ y = np.array(data.loc[:, "Production"])
 
 # define the pySR model
 model = PySRRegressor(
-    niterations=250000,
+    niterations=25000,
     binary_operators=["+", "*", "^"],
     unary_operators=[
         "inv(x) = 1/x",

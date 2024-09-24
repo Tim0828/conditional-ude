@@ -1,5 +1,7 @@
 # Conditional UDE
-Repository accompanying the manuscript on conditional universal differential equations.
+Repository accompanying the manuscript on conditional universal differential equations. The paper can be accessed here:
+
+<!-- ADD CITATION -->
 
 ![Conditional UDE](assets/cude_schema.png)
 
@@ -8,8 +10,13 @@ Whereas universal differential equations do not directly accommodate the derivat
 
 A cUDE is trained with a global neural network parameter set, and a set of conditional parameters that allow for explanation of the between-sample variability. This setup does then require a test set, where the neural network parameters are fixed and only the conditional parameters are estimated.
 
-## Files in this repository
-<!-- TODO: add explanation -->
+## Structure of this repository
+This repository contains the following folders:
+- `assets`: illustrations in the Readme files.
+- `c-peptide`: all code surrounding model fits of the UDE and the final symbolic equations on the c-peptide data, as well as the computation of indices of beta-cell function.
+- `data`: contains the data and the associated license used for this project.
+- `figures`: contains the figures saved from the code and the figure source files.
+- `symbolic-regression`: all code and raw result files from the symbolic regression run.
 
 ## Dependencies
 Used packages and versions are documented in the `Project.toml` file. Julia's package manager `pkg` automatically takes care of installing the correct versions. To install the dependencies, open Julia in the repository path.

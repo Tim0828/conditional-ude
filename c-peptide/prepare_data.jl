@@ -24,7 +24,9 @@ clamp_indices = DataFrame(CSV.File("data/ohashi_csv/ohashi_clamp_indices.csv"))
 
 clamp_indices_filtered = clamp_indices[clamp_indices[!,:No] .∈ Ref(subject_numbers), :]
 disposition_indices = clamp_indices_filtered[!, Symbol("clamp PAI")]
-auc_iri = clamp_indices_filtered[!, Symbol("incremental AUC IRI(10)")]
+first_phase = clamp_indices_filtered[!, Symbol("incremental AUC IRI(10)")]
+second_phase = clamp_indices_filtered[!, Symbol("incremental AUC IRI(10-90)")]
+total = first_phase .+ second_phase 
 
 f_train = 0.70
 
@@ -52,7 +54,9 @@ jldsave(
         timepoints=timepoints, 
         ages=ages[training_indices], 
         disposition_indices=disposition_indices[training_indices], 
-        auc_iri=auc_iri[training_indices]
+        first_phase=first_phase[training_indices],
+        second_phase=second_phase[training_indices],
+        total_insulin=total[training_indices]
     ),
     test = (
         glucose=glucose_data[testing_indices,:], 
@@ -62,7 +66,9 @@ jldsave(
         timepoints=timepoints, 
         ages=ages[testing_indices], 
         disposition_indices=disposition_indices[testing_indices], 
-        auc_iri=auc_iri[testing_indices]
+        first_phase=first_phase[testing_indices],
+        second_phase=second_phase[testing_indices],
+        total_insulin=total[testing_indices]
     )
 )
 

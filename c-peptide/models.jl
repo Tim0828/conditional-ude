@@ -223,3 +223,73 @@ function loss_function_test(θ, p)
 
     return optsols
 end
+
+function generate_sr_model(glucose_data, glucose_timepoints, age, production_function, cpeptide_data, t2dm = false)
+
+    # create surrogate
+    glucose_surrogate = LinearInterpolation(glucose_data, glucose_timepoints)
+
+    # set "van Cauter" parameters
+    short_half_life = t2dm ? 4.52 : 4.95
+    fraction = t2dm ? 0.78 : 0.76
+    long_half_life = 0.14 * age + 29.2
+
+    Cb = cpeptide_data[1]
+
+    # VC parameters
+    k12 = fraction * (log(2)/long_half_life) + (1-fraction) * (log(2)/short_half_life)
+    k01 = (log(2)/short_half_life)*(log(2)/long_half_life)/k12
+    k21 = (log(2)/short_half_life) + (log(2)/long_half_life) - k01 - k12
+
+    # define UDE model
+    function cpeptide_ude!(du, u, p, t)
+
+        β_1 = exp(p[1])
+
+        # production by neural network, forced in steady-state at t0
+        production = production_function(glucose_surrogate(t)-glucose_surrogate(glucose_timepoints[1]), β_1)
+
+        # baseline production enforcing steady-state
+        baseline_production = Cb*k01
+
+        # two c-peptide compartments
+        du[1] = -(k01 + k21) * u[1] + k12 * u[2] + baseline_production + production
+        du[2] = -k12*u[2] + k21*u[1]
+
+    end
+
+    # construct the ODEProblem
+    prob = ODEProblem(cpeptide_ude!, [Cb, (k21/k12)*Cb], (glucose_timepoints[1], glucose_timepoints[end]), [0.0])
+
+    return prob
+end
+
+function loss_function_sr(θ, p)
+    model = p[1]
+    timepoints = p[2]
+    cpeptide_data = p[3]
+
+    sol = Array(solve(model, p=θ, saveat=timepoints))
+
+    # Calculate the sum squared error
+    sum(abs2, sol[1,:] - cpeptide_data)
+  end
+
+function fit_test_sr_model(models, loss, timepoints, cpeptide, initial_β)
+  
+    optsols = OptimizationSolution[]
+    progress = Progress(length(models); dt=0.1, desc="Optimizing... ", showspeed=true, color=:firebrick)
+    for (i,model) in enumerate(models)
+
+        cpeptide_individual = cpeptide[i,:]
+        optfunc = OptimizationFunction(loss, Optimization.AutoForwardDiff())
+        lower_bounds = repeat([-5.0], length(initial_β))
+        upper_bounds = repeat([1.0], length(initial_β))
+        optprob_individual = OptimizationProblem(optfunc, initial_β, (model, timepoints, cpeptide_individual), lb=lower_bounds, ub=upper_bounds)
+        optsol = Optimization.solve(optprob_individual, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=1000)
+        push!(optsols, optsol)
+        next!(progress)
+    end
+
+    return optsols
+end
