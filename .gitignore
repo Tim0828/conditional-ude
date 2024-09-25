@@ -33,3 +33,5 @@ others
 
 # Python
 poetry.lock
+
+symbolic-regression/old

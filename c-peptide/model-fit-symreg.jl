@@ -12,7 +12,8 @@ end
 
 # Implement the symbolic regression function. 
 function sr_function(glucose, β)
-    return ((0.376*glucose*(glucose>0.0))^(1.56) / (73.3^β + glucose)) * (glucose > 0.0)
+    #return ((0.376*glucose*(glucose>0.0))^(1.56) / (73.3^β + glucose)) * (glucose > 0.0)
+    return 0.0153 * glucose * (glucose > 0.0) / (0.165 + β + 0.00566*glucose)
 end
 
 # Run parameter estimation for all individuals
@@ -44,7 +45,7 @@ fig_betas = let f = Figure(size=(500,300))
 
     for (i, type) in enumerate(unique(types))
        
-        scatter!(ax, exp.(betas[types .== type]), first_phases[types .== type])
+        scatter!(ax, exp.(betas[types .== type]), first_phases[types .== type], label=type)
         lower = sr_function.(glucose_values, quantile(exp.(betas[types .== type]), 0.25))
         upper = sr_function.(glucose_values, quantile(exp.(betas[types .== type]), 0.75))
         lines!(ax2, glucose_values, sr_function.(glucose_values, mean(exp.(betas[types .== type]))))
