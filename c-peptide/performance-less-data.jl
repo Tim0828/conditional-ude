@@ -39,9 +39,10 @@ end
     fractions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     test_errors = zeros(Float64, length(fractions), size(test_data.glucose, 1))
 
+
     function fit_model(fraction)
         if fraction < 1.0
-            selected_indices = sample(rng, 1:length(models_train), Int(round(length(models_train)*fraction)), replace=false)
+            selected_indices = stratified_split(rng, train_data.types, fraction)[1]
         else
             selected_indices = 1:length(models_train)
         end
@@ -60,20 +61,32 @@ end
 
         optsols_test = fit_test_ude(models_test, loss_function_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters, [-1.0])
         objectives_test = [optsol.objective for optsol in optsols_test]
-        return objectives_test
+
+        auc_iri = test_data.first_phase
+        correlation = corspearman(auc_iri, [optsol.u[1] for optsol in optsols_test])
+
+        return objectives_test, abs(correlation)
     end
 end
 
 test_errors = pmap(fit_model, fractions)
-test_errors = hcat(test_errors...)
 
-test_errors_mean = mean(test_errors, dims=1)[:]
-test_errors_std = std(test_errors, dims=1)[:]
+error_values = [test_error[1] for test_error in test_errors]
+correlation_values = [test_error[2] for test_error in test_errors][:]
+
+error_values = hcat(error_values...)
+
+error_values_mean = mean(error_values, dims=1)[:]
+error_values_std = std(error_values, dims=1)[:]
 
 
 figure_performance_less_data = let f = Figure(size=(400,400))
     ax = Axis(f[1,1], xlabel="Fraction of data used", ylabel="Test error")
-    lines!(ax, fractions, test_errors_mean, color=(Makie.ColorSchemes.tab10[1], 1), linewidth=2, label="Mean")
-    band!(ax, fractions, test_errors_mean .- 1.96 .* test_errors_std / sqrt(size(test_data.glucose, 1)), test_errors_mean .+ 1.96 .* test_errors_std ./ sqrt(size(test_data.glucose, 1)), color=(Makie.ColorSchemes.tab10[1], 0.1), label="Std")
+    lines!(ax, fractions, error_values_mean, color=(Makie.ColorSchemes.tab10[1], 1), linewidth=2, label="Mean")
+    band!(ax, fractions, error_values_mean .- 1.96 .* error_values_std / sqrt(size(test_data.glucose, 1)), error_values_mean .+ 1.96 .* error_values_std ./ sqrt(size(test_data.glucose, 1)), color=(Makie.ColorSchemes.tab10[1], 0.1), label="Std")
+    f
+
+    ax2 = Axis(f[1,2], xlabel="Fraction of data used", ylabel="Correlation")
+    lines!(ax2, fractions, correlation_values, color=(Makie.ColorSchemes.tab10[2], 1), linewidth=2, label="Correlation")
     f
 end
