@@ -2,6 +2,8 @@
 using CSV, DataFrames, JLD2, StableRNGs, StatsBase
 rng = StableRNG(270523)
 
+#### SECTION 1: Ohashi data ####
+
 # read the ohashi data
 data = DataFrame(CSV.File("data/ohashi_csv/ohashi_OGTT.csv"))
 data_filtered = dropmissing(data)
@@ -102,3 +104,24 @@ figure_clamp_insulin = let fig
 end
 
 save("figures/supplementary/illustration_clamp_insulin.png", figure_clamp_insulin, px_per_unit=4)
+
+
+#### SECTION 2: Fujita data ####
+
+# read the fujita data
+data = DataFrame(CSV.File("data/fujita_csv/fujita_ogtt.csv"))
+
+timepoints = parse.(Int64, names(data)[3:end-1])
+glucose_data = Matrix{Float64}(data[data[!,:Molecule] .== "Glucose", 3:end-1]) .* 0.0551 # convert to mmol/L
+cpeptide_data = Matrix{Float64}(data[data[!,:Molecule] .== "C-peptide", 3:end-1]).* 0.3311 # convert to nmol/L
+ages = repeat([29], size(glucose_data, 1))
+
+# Save all data in a convenient JLD2 hierarchical format
+jldsave(
+    "data/fujita.jld2";
+    glucose=glucose_data, 
+    cpeptide=cpeptide_data, 
+    timepoints=timepoints, 
+    ages=ages
+)
+

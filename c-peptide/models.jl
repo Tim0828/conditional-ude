@@ -94,6 +94,12 @@ function create_progressbar_callback(its)
     return callback
 end
 
+function nullcallback(_)
+    function callback(_,_)
+        false
+    end
+end
+
 function stratified_split(rng, types, f_train)
     training_indices = Int[]
     for type in unique(types)
@@ -122,10 +128,10 @@ function fit_ohashi_ude(models, chain, loss, timepoints, cpeptide, n_initials, n
     # select best initial parameters
     println("Evaluating initial parameters.")
     losses_initial = Float64[]
-    prog = Progress(n_initials; dt=0.01, desc="Evaluating... ", showspeed=true, color=:firebrick)
+    #prog = Progress(n_initials; dt=0.01, desc="Evaluating... ", showspeed=true, color=:firebrick)
     for p in initial_parameters
         push!(losses_initial, loss(p, (models, timepoints, cpeptide)))
-        next!(prog)
+        #next!(prog)
     end
     optsols = OptimizationSolution[]
     println("Commencing optimization.")
@@ -283,12 +289,93 @@ function fit_test_sr_model(models, loss, timepoints, cpeptide, initial_β)
 
         cpeptide_individual = cpeptide[i,:]
         optfunc = OptimizationFunction(loss, Optimization.AutoForwardDiff())
-        lower_bounds = repeat([-5.0], length(initial_β))
-        upper_bounds = repeat([1.0], length(initial_β))
+        lower_bounds = repeat([-1.0], length(initial_β))
+        upper_bounds = repeat([10.0], length(initial_β))
         optprob_individual = OptimizationProblem(optfunc, initial_β, (model, timepoints, cpeptide_individual), lb=lower_bounds, ub=upper_bounds)
         optsol = Optimization.solve(optprob_individual, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=1000)
         push!(optsols, optsol)
         next!(progress)
+    end
+
+    return optsols
+end
+
+function generate_nonconditional_model(glucose_data, glucose_timepoints, age, neural_net, cpeptide_data, t2dm = false)
+   
+    # create surrogate
+    glucose_surrogate = LinearInterpolation(glucose_data, glucose_timepoints)
+
+    # set "van Cauter" parameters
+    short_half_life = t2dm ? 4.52 : 4.95
+    fraction = t2dm ? 0.78 : 0.76
+    long_half_life = 0.14 * age + 29.2
+
+    Cb = cpeptide_data[1]
+
+    # VC parameters
+    k12 = fraction * (log(2)/long_half_life) + (1-fraction) * (log(2)/short_half_life)
+    k01 = (log(2)/short_half_life)*(log(2)/long_half_life)/k12
+    k21 = (log(2)/short_half_life) + (log(2)/long_half_life) - k01 - k12
+
+    # define UDE model
+    function cpeptide_ude!(du, u, p, t)
+
+        # production by neural network, forced in steady-state at t0
+        production = neural_net([glucose_surrogate(t)-glucose_surrogate(glucose_timepoints[1])], p)[1] - neural_net([0.0], p)[1]
+
+        # baseline production enforcing steady-state
+        baseline_production = Cb*k01
+
+        # two c-peptide compartments
+        du[1] = -(k01 + k21) * u[1] + k12 * u[2] + baseline_production + production
+        du[2] = -k12*u[2] + k21*u[1]
+
+    end
+
+    # construct the ODEProblem
+    prob = ODEProblem(cpeptide_ude!, [Cb, (k21/k12)*Cb], (glucose_timepoints[1], glucose_timepoints[end]))
+
+    return prob
+end
+
+function loss_nonconditional(θ, p)
+    model = p[1]
+    timepoints = p[2]
+    cpeptide_data = p[3]
+
+    sol = Array(solve(model, p=θ, saveat=timepoints))
+
+    # Calculate the sum squared error
+    sum(abs2, sol[1,:] - cpeptide_data)
+end
+
+function fit_nonconditional_model(models, chain, loss, timepoints, cpeptide, n_initials, n_selected, rng)
+    initial_params = [Vector{Float64}(SimpleChains.init_params(chain, rng=rng)) for _ in 1:n_initials]
+  
+    optsols = OptimizationSolution[]
+    progress = Progress(length(models)*n_selected; dt=0.1, desc="Optimizing... ", showspeed=true, color=:firebrick)
+    for (i,model) in enumerate(models)
+
+        cpeptide_individual = cpeptide[i,:]
+        optfunc = OptimizationFunction(loss, Optimization.AutoForwardDiff())
+        optsols_individual = OptimizationSolution[]
+
+        # select best initial parameters
+        selected_initials = partialsortperm([loss(initial_param, (model, timepoints, cpeptide_individual)) for initial_param in initial_params], 1:n_selected)
+
+        for initial_param in initial_params[selected_initials]
+            try
+                optprob_individual = OptimizationProblem(optfunc, initial_param, (model, timepoints, cpeptide_individual))
+                optsol = Optimization.solve(optprob_individual, ADAM(1e-2), maxiters=1000)
+
+                optprob_individual_2 = OptimizationProblem(optfunc, optsol.u, (model, timepoints, cpeptide_individual))
+                optsol_2 = Optimization.solve(optprob_individual_2, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=1000)
+                push!(optsols_individual, optsol_2)
+            catch
+            end
+            next!(progress)
+        end
+        push!(optsols, optsols_individual[argmin([optsol.objective for optsol in optsols_individual])])
     end
 
     return optsols

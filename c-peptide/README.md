@@ -16,9 +16,20 @@ The best model from the symbolic regression run, based on the score metric and t
 The file `other-indices.jl` computes existing indices of $\beta$-cell function based on the OGTT data and performs a correlation analysis with clamp indices. 
 
 ### Two Conditional Parameters
-This file performs the supplementary analysis of the model fit experiment, but with _two conditional parameters_ instead of one. <!-- TODO: Add additional information about this experiment -->
+This file performs the supplementary analysis of the model fit experiment, but with _two conditional parameters_ instead of one. 
+
+### Model fit on external data after symbolic regression
+The file `symreg-external-data.jl` fits the found model with symbolic regression to the external data from the Fujita dataset[^1].
+
+### Model fit with non-conditional UDE
+The file `model-fit-non-conditional.jl` fits the UDE model without the conditional parameter to the Ohashi dataset and the returned model fit is compared to the model fit with the conditional parameter.
+
+### Performance of the model with different data sizes
+The file `performance-less-data.jl` fits the UDE model to fractions of the Ohashi train dataset with varying amounts of data and compares test performance of each fraction.
 
 ## Other Files
 
 ### `models.jl`
 This file contains general functions for the model fitting process that are used accross multiple experiments. 
+
+[^1]: Fujita, S., Karasawa, Y., Hironaka, K. I., Taguchi, Y. H., & Kuroda, S. (2023). Features extracted using tensor decomposition reflect the biological features of the temporal patterns of human blood multimodal metabolome. PLoS ONE, 18(2 February). https://doi.org/10.1371/journal.pone.0281594
