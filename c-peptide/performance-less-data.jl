@@ -3,7 +3,7 @@
 # Model fit to the train data and evaluation on the test data
 using Distributed
 
-n_cores = 10
+n_cores = 6
 
 println("Setting up parallel pool of $(n_cores) cores.")
 # add processes that match the number of cores set
@@ -36,7 +36,7 @@ end
     ]
 
     # train models
-    fractions = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    fractions = reverse([0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0])
     test_errors = zeros(Float64, length(fractions), size(test_data.glucose, 1))
 
 
@@ -80,13 +80,15 @@ error_values_mean = mean(error_values, dims=1)[:]
 error_values_std = std(error_values, dims=1)[:]
 
 
-figure_performance_less_data = let f = Figure(size=(400,400))
-    ax = Axis(f[1,1], xlabel="Fraction of data used", ylabel="Test error")
+figure_performance_less_data = let f = Figure(size=(400,200))
+    ax = Axis(f[1,1], xlabel="Fraction of training data", ylabel="Test error")
     lines!(ax, fractions, error_values_mean, color=(Makie.ColorSchemes.tab10[1], 1), linewidth=2, label="Mean")
     band!(ax, fractions, error_values_mean .- 1.96 .* error_values_std / sqrt(size(test_data.glucose, 1)), error_values_mean .+ 1.96 .* error_values_std ./ sqrt(size(test_data.glucose, 1)), color=(Makie.ColorSchemes.tab10[1], 0.1), label="Std")
     f
 
-    ax2 = Axis(f[1,2], xlabel="Fraction of data used", ylabel="Correlation")
+    ax2 = Axis(f[1,2], xlabel="Fraction of training data", ylabel="Correlation")
     lines!(ax2, fractions, correlation_values, color=(Makie.ColorSchemes.tab10[2], 1), linewidth=2, label="Correlation")
     f
 end
+
+save("figures/supplementary/performance-less-data.png", figure_performance_less_data, px_per_unit=4)
