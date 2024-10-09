@@ -145,7 +145,7 @@ function _optimize(optfunc::OptimizationFunction,
     ) where T <: Real
 
     # training step 1 (Adam)
-    optprob_train = OptimizationProblem(optfunc, initial_parameters[param_indx], (models, timepoints, cpeptide_data))
+    optprob_train = OptimizationProblem(optfunc, initial_parameters, (models, timepoints, cpeptide_data))
     optsol_train = Optimization.solve(optprob_train, ADAM(learning_rate_adam), maxiters=number_of_iterations_adam, callback=create_progressbar_callback(1000, run))
     
     # training step 2 (LBFGS)
@@ -185,7 +185,7 @@ function train(models::AbstractVector{CPeptideUDEModel}, timepoints::AbstractVec
     end
 
     losses_initial = fetch.(losses_initial)
-    
+    println("Initial parameters evaluated. Optimizing for the best $(selected_initials) initial parameters.")
     optsols = DTask[]
     optfunc = OptimizationFunction(loss, AutoForwardDiff())
     prog = Progress(selected_initials; dt=1.0, desc="Optimizing...", color=:blue)
