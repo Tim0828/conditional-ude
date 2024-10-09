@@ -34,3 +34,9 @@ jldopen("source_data/neural_network_parameters.jld2", "w") do file
     file["depth"] = 2
     file["parameters"] = neural_network_parameters
 end
+
+fig_scat = let f = Figure(size=(300,300))
+    ax = Axis(f[1,1])
+    scatter!(ax, exp.(best_model.u.ode[:]), train_data.first_phase)
+    f
+end
