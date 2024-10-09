@@ -9,7 +9,7 @@ using ProgressMeter: Progress, next!
 
 using OrdinaryDiffEq
 using Optimization, OptimizationOptimisers, OptimizationOptimJL
-using SciMLSensitivity, LineSearches
+using SciMLSensitivity, LineSearches, Dagger
 
 softplus(x) = log(1 + exp(x))
 
@@ -134,14 +134,37 @@ function create_progressbar_callback(its, run)
     return callback
 end
 
+function _optimize(optfunc::OptimizationFunction, 
+    initial_parameters,
+    models::AbstractVector{CPeptideUDEModel}, 
+    timepoints::AbstractVector{T}, 
+    cpeptide_data::AbstractMatrix{T},
+    number_of_iterations_adam::Int,
+    number_of_iterations_lbfgs::Int,
+    learning_rate_adam::Real
+    ) where T <: Real
+
+    # training step 1 (Adam)
+    optprob_train = OptimizationProblem(optfunc, initial_parameters[param_indx], (models, timepoints, cpeptide_data))
+    optsol_train = Optimization.solve(optprob_train, ADAM(learning_rate_adam), maxiters=number_of_iterations_adam, callback=create_progressbar_callback(1000, run))
+    
+    # training step 2 (LBFGS)
+    optprob_train_2 = OptimizationProblem(optfunc, optsol_train.u, (models, timepoints, cpeptide_data))
+    optsol_train_2 = Optimization.solve(optprob_train_2, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=number_of_iterations_lbfgs)
+
+    return optsol_train_2
+
+end
+
 function train(models::AbstractVector{CPeptideUDEModel}, timepoints::AbstractVector{T}, cpeptide_data::AbstractVecOrMat{T}, rng::AbstractRNG; 
-    initial_guesses::Int = 10_000,
-    selected_initials::Int = 10,
+    initial_guesses::Int = 100_000,
+    selected_initials::Int = 20,
     lhs_lower_bound::V = -2.0,
     lhs_upper_bound::V = 0.0,
     n_conditional_parameters::Int = 1,
     number_of_iterations_adam::Int = 1000,
-    number_of_iterations_lbfgs::Int = 1000) where T <: Real where V <: Real
+    number_of_iterations_lbfgs::Int = 1000,
+    learning_rate_adam::Real = 1e-2) where T <: Real where V <: Real
 
     # sample initial parameters
     initial_neural_params = sample_initial_neural_parameters(models[1].chain, initial_guesses, rng)
@@ -153,31 +176,31 @@ function train(models::AbstractVector{CPeptideUDEModel}, timepoints::AbstractVec
     ) for i in eachindex(initial_neural_params)]
 
     # preselect initial parameters
-    losses_initial = Float64[]
+    losses_initial = DTask[]
     prog = Progress(initial_guesses; dt=0.01, desc="Evaluating initial guesses... ", showspeed=true, color=:firebrick)
-    for p in initial_parameters
-        push!(losses_initial, loss(p, (models, timepoints, cpeptide_data)))
+    @sync for p in initial_parameters
+        loss_value = Dagger.@spawn loss(p, (models, timepoints, cpeptide_data))
+        push!(losses_initial, loss_value)
         next!(prog)
     end
 
-    optsols = OptimizationSolution[]
-    for (run, param_indx) in enumerate(partialsortperm(losses_initial, 1:selected_initials))
+    losses_initial = fetch.(losses_initial)
+    
+    optsols = DTask[]
+    optfunc = OptimizationFunction(loss, AutoForwardDiff())
+    prog = Progress(selected_initials; dt=1.0, desc="Optimizing...", color=:blue)
+    @sync for param_indx in partialsortperm(losses_initial, 1:selected_initials)
         try 
-            optfunc = OptimizationFunction(loss, AutoForwardDiff())
-
-            # training step 1 (Adam)
-            optprob_train = OptimizationProblem(optfunc, initial_parameters[param_indx], (models, timepoints, cpeptide_data))
-            optsol_train = Optimization.solve(optprob_train, ADAM(1e-2), maxiters=number_of_iterations_adam, callback=create_progressbar_callback(1000, run))
-            
-            # training step 2 (LBFGS)
-            optprob_train_2 = OptimizationProblem(optfunc, optsol_train.u, (models, timepoints, cpeptide_data))
-            optsol_train_2 = Optimization.solve(optprob_train_2, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=number_of_iterations_lbfgs)
+            optsol_train_2 = Dagger.@spawn _optimize(optfunc, initial_parameters[param_indx], 
+                                       models, timepoints, cpeptide_data, number_of_iterations_adam, 
+                                       number_of_iterations_lbfgs, learning_rate_adam)
             push!(optsols, optsol_train_2)
         catch
             println("Optimization failed... Skipping")
         end
+        next!(prog)
     end
 
-    return optsols
+    return fetch.(optsols)
 
 end
