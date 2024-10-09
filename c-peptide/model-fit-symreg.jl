@@ -60,29 +60,79 @@ end
 
 save("figures/correlation_dose_response_sr.png", fig_betas, px_per_unit=4)
 
-model_fit_figure = let f = Figure(size=(700,300))
+model_fit_figure = let f = Figure(size=(700,550))
+    ga = GridLayout(f[1,1:3], )
+    gb = GridLayout(f[1,4], nrow=1, ncol=1)
 
     sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
     sols = [Array(solve(model, p=[beta], saveat=sol_timepoints, save_idxs=1)) for (model,beta) in zip(all_models, betas)]
 
-    axs = [Axis(f[1,i], xlabel="Time [min]", ylabel="C-peptide [nM]", title=type) for (i,type) in enumerate(unique(test_data.types))]
+    axs = [Axis(ga[1,i], xlabel="Time [min]", ylabel="C-peptide [nM]", title=type) for (i,type) in enumerate(unique(test_data.types))]
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = [train_data.types; test_data.types] .== type
-        sol_type = hcat(sols[type_indices]...)
-        mean_sol = mean(sol_type, dims=2)
-        std_sol = std(sol_type, dims=2)
+       
+        cpeptide_data_type = cpeptide_data[type_indices,:]
 
-        band!(axs[i], sol_timepoints, mean_sol[:,1] .- std_sol[:,1], mean_sol[:,1] .+ std_sol[:,1], color=(Makie.ColorSchemes.tab10[i], 0.1), label=type)
-        lines!(axs[i], sol_timepoints, mean_sol[:,1], color=(Makie.ColorSchemes.tab10[i], 1), linewidth=2, label=type)
+        sol_idx = findfirst(objectives[type_indices] .== median(objectives[type_indices]))
+
+        println(cpeptide_data_type[sol_idx,:])
+
+        # find the median fit of the type
+        sol_type = sols[type_indices][sol_idx]
+
+        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(:black, 1), linewidth=2, label="Model fit", linestyle=:dot)
+        scatter!(axs[i], test_data.timepoints, cpeptide_data_type[sol_idx,:] , color=(:black, 1), markersize=10, label="Data")
+
     end
 
-    for (i, type) in enumerate(unique(test_data.types))
+    ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
+    boxplot!(ax, repeat([0], sum([train_data.types; test_data.types].== "NGT")), log10.(objectives[[train_data.types; test_data.types] .== "NGT"]), color=COLORS["NGT"], width=0.75)
+    boxplot!(ax, repeat([1], sum([train_data.types; test_data.types] .== "IGT")), log10.(objectives[[train_data.types; test_data.types] .== "IGT"]), color=COLORS["IGT"], width=0.75)
+    boxplot!(ax, repeat([2], sum([train_data.types; test_data.types] .== "T2DM")), log10.(objectives[[train_data.types; test_data.types] .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
+
+    Legend(f[2,1:3], axs[1], orientation=:horizontal)
+
+    gc = GridLayout(f[3,1:4])
+
+
+
+    first_phases = [train_data.first_phase; test_data.first_phase]
+    second_phases = [train_data.ages; test_data.ages]
+    disposition_indices = [train_data.insulin_sensitivity; test_data.insulin_sensitivity]
+
+    ax_first = Axis(gc[1,1], xlabel="βᵢ", ylabel="1ˢᵗ Phase Clamp [μIU mL⁻¹ min]", title="ρ = $(round(corspearman(first_phases, betas), digits=4))")
+    ax_second = Axis(gc[1,2], xlabel="βᵢ", ylabel="Age [y]", title="ρ = $(round(corspearman(second_phases, betas), digits=4))")
+    ax_di = Axis(gc[1,3], xlabel="βᵢ", ylabel="Insulin Sensitivity Index", title="ρ = $(round(corspearman(disposition_indices, betas), digits=4))")
+
+    MAKERS = Dict(
+        "NGT" => '●',
+        "IGT" => '▴',
+        "T2DM" => '■'
+    )
+    MARKERSIZES = Dict(
+        "NGT" => 10,
+        "IGT" => 18,
+        "T2DM" => 10
+    )
+
+    for (i,type) in enumerate(unique(test_data.types))
         type_indices = [train_data.types; test_data.types] .== type
-        c_peptide = [train_data.cpeptide; test_data.cpeptide]
-        scatter!(axs[i], test_data.timepoints, mean(c_peptide[type_indices,:], dims=1)[:], color=(Makie.ColorSchemes.tab10[i], 1), markersize=10)
-        errorbars!(axs[i], test_data.timepoints, mean(c_peptide[type_indices,:], dims=1)[:], std(c_peptide[type_indices,:], dims=1)[:], color=(Makie.ColorSchemes.tab10[i], 1), whiskerwidth=10)
+        scatter!(ax_first, betas[type_indices], first_phases[type_indices], color=(COLORS[type], 0.8), markersize=MARKERSIZES[type], label=type, marker=MAKERS[type])
+        scatter!(ax_second, betas[type_indices], second_phases[type_indices], color=(COLORS[type], 0.8), markersize=MARKERSIZES[type], label=type, marker=MAKERS[type])
+        scatter!(ax_di, betas[type_indices], disposition_indices[type_indices], color=(COLORS[type], 0.8), markersize=MARKERSIZES[type], label=type, marker=MAKERS[type])
+    end
+
+    Legend(f[4,1:4], ax_first, orientation=:horizontal)
+
+
+    for (label, layout) in zip(["a", "b", "c"], [ga, gb, gc])
+        Label(layout[1, 1, TopLeft()], label,
+        fontsize = 18,
+        font = :bold,
+        padding = (0, 20, 8, 0),
+        halign = :right)
     end
     f
 end
 
-save("figures/model_fit_sr.png", model_fit_figure, px_per_unit=4)
+save("figures/sr_result_figure.png", model_fit_figure, px_per_unit=4)

@@ -23,6 +23,7 @@ models_train = [
 optsols_train = fit_ohashi_ude(models_train, chain, loss_function_train, train_data.timepoints, train_data.cpeptide, 10_000, 10, rng, create_progressbar_callback; n_conditionals=2);
 objectives_train = [optsol.objective for optsol in optsols_train]
 optsols_train[1].u.ode
+
 # select the best neural net parameters
 neural_network_parameters = optsols_train[argmin(objectives_train)].u.neural
 

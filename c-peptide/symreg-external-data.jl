@@ -27,28 +27,56 @@ optsols_sr = fit_test_sr_model(all_models, loss_function_sr, timepoints, cpeptid
 objectives = [optsol.objective for optsol in optsols_sr]
 betas = [optsol.u[1] for optsol in optsols_sr]
 
-model_fit_figure = let f = Figure(size=(400,300))
+function argmedian(x)
+    return argmin(abs.(x .- median(x)))
+end
+
+function argquantile(x, q)
+    return argmin(abs.(x .- quantile(x, q)))
+end
+
+model_fit_figure = let f = Figure(size=(775,300))
+
+    ga = GridLayout(f[1,1:2])
+    gb = GridLayout(f[1,3:4])
+    gc = GridLayout(f[1,5:6])
 
     sol_timepoints = timepoints[1]:0.1:timepoints[end]
     sols = [Array(solve(model, p=[beta], saveat=sol_timepoints, save_idxs=1)) for (model,beta) in zip(all_models, betas)]
 
-    ax = Axis(f[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]") 
+    ax = Axis(gb[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]") 
 
-    sol_type = hcat(sols...)
-    mean_sol = mean(sol_type, dims=2)
-    std_sol = std(sol_type, dims=2)
+    median_index = argmedian(objectives)
+    lquantile_index = argquantile(objectives, 0.25)
+    uquantile_index = argquantile(objectives, 0.75)
+
+    lines!(ax, sol_timepoints, sols[median_index], color=:black, linestyle=:dot, linewidth=2, label="Model")
+    scatter!(ax, timepoints, cpeptide[median_index,:], color=:black, markersize=10, label="Data")
+
+    ax = Axis(ga[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]")
+    lines!(ax, sol_timepoints, sols[lquantile_index], color=:black, linestyle=:dot, linewidth=2, label="Model")
+    scatter!(ax, timepoints, cpeptide[lquantile_index,:], color=:black, markersize=10, label="Data")
+
+    ax = Axis(gc[1,1], xlabel="Time [min]", ylabel="C-peptide [nM]")
+    lines!(ax, sol_timepoints, sols[uquantile_index], color=:black, linestyle=:dot, linewidth=2, label="Model")
+    scatter!(ax, timepoints, cpeptide[uquantile_index,:], color=:black, markersize=10, label="Data")
+
+    Legend(f[2,1:6], ax, orientation=:horizontal, merge=true)
+
+    gd = GridLayout(f[1,7])
+    ax = Axis(gd[1,1], ylabel="Error", limits = ((0.5,1.5),nothing), xticks=([],[]))
+    boxplot!(ax, repeat([1], length(objectives)), objectives, color=COLORS["NGT"], strokewidth=2, width=0.5)
 
 
- 
+    for (label, layout) in zip(["a", "b", "c", "d"], [ga, gb, gc, gd])
+        Label(layout[1, 1, TopLeft()], label,
+        fontsize = 18,
+        font = :bold,
+        padding = (0, 20, 8, 0),
+        halign = :right)
+    end
 
-    scatter!(ax,timepoints, mean(cpeptide, dims=1)[:], color=(:black, 0.6), markersize=25, marker='∘', label="Data")
-    errorbars!(ax, timepoints, mean(cpeptide, dims=1)[:], std(cpeptide, dims=1)[:], color=(:black, 0.6), whiskerwidth=10, label="Data")
-    band!(ax, sol_timepoints, mean_sol[:,1] .- std_sol[:,1], mean_sol[:,1] .+ std_sol[:,1], color=(Makie.ColorSchemes.tab10[1], 0.1), label="Model")
-    lines!(ax, sol_timepoints, mean_sol[:,1], color=(Makie.ColorSchemes.tab10[1], 1), linewidth=2, label="Model")
-    Legend(f[1,2], ax, merge=true)
-
-    vlines!(ax, [120], color=Makie.ColorSchemes.tab10[2], linestyle=:dash, linewidth=1)
     f
 end
 
-save("figures/model_fit_sr_external.png", model_fit_figure, px_per_unit=4)
+save("figures/model_fit_sr_external.eps", model_fit_figure, px_per_unit=4)

@@ -281,7 +281,7 @@ function loss_function_sr(θ, p)
     sum(abs2, sol[1,:] - cpeptide_data)
   end
 
-function fit_test_sr_model(models, loss, timepoints, cpeptide, initial_β)
+function fit_test_sr_model(models, loss, timepoints, cpeptide, initial_β; lb=-1.0, ub=10.0)
   
     optsols = OptimizationSolution[]
     progress = Progress(length(models); dt=0.1, desc="Optimizing... ", showspeed=true, color=:firebrick)
@@ -289,8 +289,8 @@ function fit_test_sr_model(models, loss, timepoints, cpeptide, initial_β)
 
         cpeptide_individual = cpeptide[i,:]
         optfunc = OptimizationFunction(loss, Optimization.AutoForwardDiff())
-        lower_bounds = repeat([-1.0], length(initial_β))
-        upper_bounds = repeat([10.0], length(initial_β))
+        lower_bounds = repeat([lb], length(initial_β))
+        upper_bounds = repeat([ub], length(initial_β))
         optprob_individual = OptimizationProblem(optfunc, initial_β, (model, timepoints, cpeptide_individual), lb=lower_bounds, ub=upper_bounds)
         optsol = Optimization.solve(optprob_individual, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=1000)
         push!(optsols, optsol)
@@ -380,3 +380,16 @@ function fit_nonconditional_model(models, chain, loss, timepoints, cpeptide, n_i
 
     return optsols
 end
+
+COLORS = Dict(
+    "T2DM" => RGBf(1/255, 120/255, 80/255),
+    "NGT" => RGBf(1/255, 101/255, 157/255),
+    "IGT" => RGBf(201/255, 78/255, 0/255)
+)
+
+COLORLIST = [
+    RGBf(252/255, 253/255, 191/255),
+    RGBf(254/255, 191/255, 132/255),
+    RGBf(250/255, 127/255, 94/255),
+    RGBf(222/255, 73/255, 104/255)
+]

@@ -3,7 +3,7 @@
 # Model fit to the train data and evaluation on the test data
 using Distributed
 
-n_cores = 6
+n_cores = 8
 
 println("Setting up parallel pool of $(n_cores) cores.")
 # add processes that match the number of cores set
@@ -41,13 +41,13 @@ end
 
 
     function fit_model(fraction)
-        if fraction < 1.0
-            selected_indices = stratified_split(rng, train_data.types, fraction)[1]
-        else
-            selected_indices = 1:length(models_train)
-        end
+        ngt_indices = findall(train_data.types .== "NGT")
+        igt_indices = findall(train_data.types .== "IGT")
+        t2dm_indices = findall(train_data.types .== "T2DM")
+
+        selected_indices = vcat(ngt_indices[1:round(Int, fraction * length(ngt_indices))], igt_indices[1:round(Int, fraction * length(igt_indices))], t2dm_indices[1:round(Int, fraction * length(t2dm_indices))])
         
-        optsols_train = fit_ohashi_ude(models_train[selected_indices], chain, loss_function_train, train_data.timepoints, train_data.cpeptide[selected_indices,:], 10_000, 5, rng, nullcallback);
+        optsols_train = fit_ohashi_ude(models_train[selected_indices], chain, loss_function_train, train_data.timepoints, train_data.cpeptide[selected_indices,:], 10_000, 10, rng, nullcallback);
         objectives_train = [optsol.objective for optsol in optsols_train]
 
         # select the best neural net parameters
@@ -61,33 +61,20 @@ end
 
         optsols_test = fit_test_ude(models_test, loss_function_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters, [-1.0])
         objectives_test = [optsol.objective for optsol in optsols_test]
-
-        auc_iri = test_data.first_phase
-        correlation = corspearman(auc_iri, [optsol.u[1] for optsol in optsols_test])
-
-        return objectives_test, abs(correlation)
+        return objectives_test
     end
 end
 
-test_errors = pmap(fit_model, fractions)
-
-error_values = [test_error[1] for test_error in test_errors]
-correlation_values = [test_error[2] for test_error in test_errors][:]
-
+error_values = pmap(fit_model, fractions)
 error_values = hcat(error_values...)
-
 error_values_mean = mean(error_values, dims=1)[:]
 error_values_std = std(error_values, dims=1)[:]
 
 
-figure_performance_less_data = let f = Figure(size=(400,200))
+figure_performance_less_data = let f = Figure(size=(250,250))
     ax = Axis(f[1,1], xlabel="Fraction of training data", ylabel="Test error")
     lines!(ax, fractions, error_values_mean, color=(Makie.ColorSchemes.tab10[1], 1), linewidth=2, label="Mean")
     band!(ax, fractions, error_values_mean .- 1.96 .* error_values_std / sqrt(size(test_data.glucose, 1)), error_values_mean .+ 1.96 .* error_values_std ./ sqrt(size(test_data.glucose, 1)), color=(Makie.ColorSchemes.tab10[1], 0.1), label="Std")
-    f
-
-    ax2 = Axis(f[1,2], xlabel="Fraction of training data", ylabel="Correlation")
-    lines!(ax2, fractions, correlation_values, color=(Makie.ColorSchemes.tab10[2], 1), linewidth=2, label="Correlation")
     f
 end
 

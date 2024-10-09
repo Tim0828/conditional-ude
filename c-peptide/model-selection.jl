@@ -50,27 +50,37 @@ for depth in depths, width in widths
     push!(objectives, objectives_testing)
 end
 
-conditions
 
 objectives_plot = vcat(objectives...)
 locations = vcat([repeat([3*i], length(objectives[1])) for i in eachindex(depths)]...)
 locations_plot = sort([locations; locations .+ 0.5; locations .+ 1.0; locations .+ 1.5])
 figure_objectives = let f
     f = Figure(size=(400,400))
-    ax = Axis(f[1,1], xticks=(unique(locations_plot), [
-        "3", "4", "5", "6", "3", "4", "5", "6", "3", "4", "5", "6"
-    ]), xlabel="Layer Width", ylabel="Log₁₀ [SSE]")
+    ax = Axis(f[1,1], xticks=([3.75, 6.75, 9.75], ["1", "2", "3"
+    ]), xlabel="Model Depth", ylabel="Log₁₀ [SSE]")
 
-    boxplot!(ax, locations_plot[1:64], log10.(objectives_plot[1:64]), width=0.3, label="1")
-    boxplot!(ax, locations_plot[65:128], log10.(objectives_plot[65:128]), width=0.3, label="2")
-    boxplot!(ax, locations_plot[129:192], log10.(objectives_plot[129:192]), width=0.3, label="3")
-    Legend(f[2,1], ax, "Model Depth", orientation=:horizontal)
+    boxplot!(ax, locations_plot[1:16], log10.(objectives_plot[1:16]), width=0.3, label="1", color=COLORLIST[1], strokewidth=1.5)
+    boxplot!(ax, locations_plot[17:32], log10.(objectives_plot[17:32]), width=0.3, label="2", color=COLORLIST[2], strokewidth=1.5)
+    boxplot!(ax, locations_plot[33:48], log10.(objectives_plot[33:48]), width=0.3, label="3", color=COLORLIST[3], strokewidth=1.5)
+    boxplot!(ax, locations_plot[49:64], log10.(objectives_plot[49:64]), width=0.3, label="4", color=COLORLIST[4], strokewidth=1.5)
+
+    boxplot!(ax, locations_plot[65:80], log10.(objectives_plot[65:80]), width=0.3, label="1", color=COLORLIST[1], strokewidth=1.5)
+    boxplot!(ax, locations_plot[81:96], log10.(objectives_plot[81:96]), width=0.3, label="2", color=COLORLIST[2], strokewidth=1.5)
+    boxplot!(ax, locations_plot[97:112], log10.(objectives_plot[97:112]), width=0.3, label="3", color=COLORLIST[3], strokewidth=1.5)
+    boxplot!(ax, locations_plot[113:128], log10.(objectives_plot[113:128]), width=0.3, label="4", color=COLORLIST[4], strokewidth=1.5)
+
+    boxplot!(ax, locations_plot[129:144], log10.(objectives_plot[129:144]), width=0.3, label="1", color=COLORLIST[1], strokewidth=1.5)
+    boxplot!(ax, locations_plot[145:160], log10.(objectives_plot[145:160]), width=0.3, label="2", color=COLORLIST[2], strokewidth=1.5)
+    boxplot!(ax, locations_plot[161:176], log10.(objectives_plot[161:176]), width=0.3, label="3", color=COLORLIST[3], strokewidth=1.5)
+    boxplot!(ax, locations_plot[177:192], log10.(objectives_plot[177:192]), width=0.3, label="4", color=COLORLIST[4], strokewidth=1.5)
+
+    Legend(f[2,1], ax, "Model Width", merge=true, orientation=:horizontal)
 
     f
 end
 
 # save the figure
-save("figures/supplementary/model-selection.png", figure_objectives, px_per_unit=4 )
+save("figures/supplementary/model-selection.eps", figure_objectives, px_per_unit=4 )
 
 # save the source data
 jldsave("figures/supplementary/model-selection.jld2",
