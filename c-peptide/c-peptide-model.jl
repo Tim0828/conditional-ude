@@ -9,7 +9,7 @@ using ProgressMeter: Progress, next!
 
 using OrdinaryDiffEq
 using Optimization, OptimizationOptimisers, OptimizationOptimJL
-using SciMLSensitivity, LineSearches, Dagger
+using SciMLSensitivity, LineSearches
 
 softplus(x) = log(1 + exp(x))
 
@@ -158,7 +158,7 @@ end
 
 function train(models::AbstractVector{CPeptideUDEModel}, timepoints::AbstractVector{T}, cpeptide_data::AbstractVecOrMat{T}, rng::AbstractRNG; 
     initial_guesses::Int = 100_000,
-    selected_initials::Int = 20,
+    selected_initials::Int = 10,
     lhs_lower_bound::V = -2.0,
     lhs_upper_bound::V = 0.0,
     n_conditional_parameters::Int = 1,
@@ -176,22 +176,21 @@ function train(models::AbstractVector{CPeptideUDEModel}, timepoints::AbstractVec
     ) for i in eachindex(initial_neural_params)]
 
     # preselect initial parameters
-    losses_initial = DTask[]
+    losses_initial = Float64[]
     prog = Progress(initial_guesses; dt=0.01, desc="Evaluating initial guesses... ", showspeed=true, color=:firebrick)
-    @sync for p in initial_parameters
-        loss_value = Dagger.@spawn loss(p, (models, timepoints, cpeptide_data))
+    for p in initial_parameters
+        loss_value = loss(p, (models, timepoints, cpeptide_data))
         push!(losses_initial, loss_value)
         next!(prog)
     end
 
-    losses_initial = fetch.(losses_initial)
     println("Initial parameters evaluated. Optimizing for the best $(selected_initials) initial parameters.")
-    optsols = DTask[]
+    optsols = OptimizationSolution[]
     optfunc = OptimizationFunction(loss, AutoForwardDiff())
     prog = Progress(selected_initials; dt=1.0, desc="Optimizing...", color=:blue)
-    @sync for param_indx in partialsortperm(losses_initial, 1:selected_initials)
+    for param_indx in partialsortperm(losses_initial, 1:selected_initials)
         try 
-            optsol_train_2 = Dagger.@spawn _optimize(optfunc, initial_parameters[param_indx], 
+            optsol_train_2 = _optimize(optfunc, initial_parameters[param_indx], 
                                        models, timepoints, cpeptide_data, number_of_iterations_adam, 
                                        number_of_iterations_lbfgs, learning_rate_adam)
             push!(optsols, optsol_train_2)
@@ -201,6 +200,6 @@ function train(models::AbstractVector{CPeptideUDEModel}, timepoints::AbstractVec
         next!(prog)
     end
 
-    return fetch.(optsols)
+    return optsols
 
 end
