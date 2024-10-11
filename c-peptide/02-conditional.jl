@@ -1,5 +1,6 @@
 # Model fit to the train data and evaluation on the test data
 train_model = false
+extension = "png"
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
 
@@ -23,13 +24,18 @@ models_train = [
 
 # train the models or load the trained model neural network parameters
 if train_model
-    optsols_train = train(models_train, train_data.timepoints, train_data.cpeptide, rng)
-    objectives = [optsol.objective for optsol in optsols_train]
 
-    # get the best model
-    best_model_index = select_model(
-        optsols_train, models_train, train_data.timepoints, train_data.cpeptide
-    )
+    # train on 70%, select on 30%
+    indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+
+    optsols_train = train(models_train[indices_train], train_data.timepoints, train_data.cpeptide[indices_train,:], rng)
+
+    neural_network_parameters = [optsol.u.neural[:] for optsol in optsols_train]
+    betas = [optsol.u.ode[:] for optsol in optsols_train]
+
+    best_model_index = select_model(models_train[indices_validation],
+    train_data.timepoints, train_data.cpeptide[indices_validation,:], neural_network_parameters,
+    betas) 
 
     best_model = optsols_train[best_model_index]
 
@@ -37,30 +43,27 @@ if train_model
     neural_network_parameters = best_model.u.neural[:]
 
     # save the best model
-    jldopen("source_data/cude_neural_parameters_2.jld2", "w") do file
+    jldopen("source_data/cude_neural_parameters.jld2", "w") do file
         file["width"] = 6
         file["depth"] = 2
         file["parameters"] = neural_network_parameters
+        file["betas"] = betas
     end
 else
 
-    neural_network_parameters = try
-        jldopen("source_data/cude_neural_parameters_2.jld2") do file
-            file["parameters"]
+    neural_network_parameters, betas = try
+        jldopen("source_data/cude_neural_parameters.jld2") do file
+            file["parameters"], file["betas"]
         end
     catch
         error("Trained weights not found! Please train the model first by setting train_model to true")
     end
 end
-
-# neural_network_parameters = jldopen("figures/model_fit.jld2") do file
-#     file["neural_network_parameters"]
-# end 
-best_model.u.neural[:]
-neural_network_parameters
-betas_train = best_model.u.ode[:]
 # obtain the betas for the train data
-optsols = train(models_train, train_data.timepoints, train_data.cpeptide, neural_network_parameters)
+lb = minimum(betas[best_model_index]) - 0.1*abs(minimum(betas[best_model_index]))
+ub = maximum(betas[best_model_index]) + 0.1*abs(maximum(betas[best_model_index]))
+
+optsols = train(models_train, train_data.timepoints, train_data.cpeptide, neural_network_parameters, lbfgs_lower_bound=lb, lbfgs_upper_bound=ub)
 betas_train = [optsol.u[1] for optsol in optsols]
 objectives_train = [optsol.objective for optsol in optsols]
 
@@ -70,7 +73,7 @@ models_test = [
     CPeptideCUDEModel(test_data.glucose[i,:], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i,:], t2dm[i]) for i in axes(test_data.glucose, 1)
 ]
 
-optsols = train(models_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters)
+optsols = train(models_test, test_data.timepoints, test_data.cpeptide, neural_network_parameters, lbfgs_lower_bound=lb, lbfgs_upper_bound=ub)
 betas_test = [optsol.u[1] for optsol in optsols]
 objectives_test = [optsol.objective for optsol in optsols]
 
@@ -80,7 +83,7 @@ model_fit_figure = let fig
     gb = GridLayout(fig[1,4], nrow=1, ncol=1)
     # do the simulations
     sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
-    sols = [Array(solve(model.problem, p=ComponentArray(ode=betas_test[i], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
+    sols = [Array(solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
     
     axs = [Axis(ga[1,i], xlabel="Time [min]", ylabel="C-peptide [nM]", title=type) for (i,type) in enumerate(unique(test_data.types))]
 
@@ -118,7 +121,7 @@ model_fit_figure = let fig
 fig
 end
 
-#save("figures/model_fit_median.eps", model_fit_figure, px_per_unit=4)
+save("figures/model_fit_test_median.$extension", model_fit_figure, px_per_unit=4)
 
 model_fit_all_test = let fig
     fig = Figure(size = (1000, 1500))
@@ -147,6 +150,8 @@ model_fit_all_test = let fig
 
     fig
 end
+
+save("figures/supplementary/model_fit_test_all.$extension", model_fit_all_test, px_per_unit=4)
 
 function argmedian(x)
     return argmin(abs.(x .- median(x)))
@@ -196,6 +201,9 @@ model_fit_train = let fig
 
 fig
 end
+
+save("figures/supplementary/model_fit_train_median.$extension", model_fit_train, px_per_unit=4)
+
 
 # Correlation figure; 1st phase clamp, age, insulin sensitivity 
 correlation_figure = let fig
@@ -261,6 +269,8 @@ correlation_figure = let fig
     fig
 
 end
+
+save("figures/correlations_cude.$extension", correlation_figure, px_per_unit=4)
 
 # supplementary correlation: 2nd phase clamp, body weight, bmi, disposition index
 additional_correlation_figure = let fig = Figure(size=(1000,300))
@@ -332,3 +342,19 @@ additional_correlation_figure = let fig = Figure(size=(1000,300))
    
    fig
 end
+
+save("figures/supplementary/correlations_other_cude.$extension", additional_correlation_figure, px_per_unit=4)
+
+# sample data for symbolic regression
+betas_combined = exp.([betas_train; betas_test])
+glucose_combined = [train_data.glucose; test_data.glucose]
+
+beta_range = LinRange(minimum(betas_combined), maximum(betas_combined), 20)
+glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]), 20)
+
+colnames = ["Beta", "Glucose", "Production"]
+data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
+data = hcat(reshape(data, 20*20)...)
+
+df = DataFrame(data', colnames)
+CSV.write("data/ohashi_production.csv", df)

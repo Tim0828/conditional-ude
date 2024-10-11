@@ -296,7 +296,7 @@ Sum of squared errors loss function for the conditional UDE c-peptide model with
 function loss(θ, (model, timepoints, cpeptide_data, neural_network_parameters)::Tuple{CPeptideCUDEModel, AbstractVector{T}, AbstractVector{T}, AbstractVector{T}}) where T <: Real
 
     # construct the parameter vector
-    p = (ode=θ, neural=neural_network_parameters)
+    p = ComponentArray(ode=θ, neural=neural_network_parameters)
     return loss(p, (model, timepoints, cpeptide_data))
 end
 
@@ -317,10 +317,12 @@ Sum of squared errors loss function for the conditional UDE c-peptide model with
 """
 function loss(θ, (models, timepoints, cpeptide_data)::Tuple{AbstractVector{CPeptideCUDEModel}, AbstractVector{T}, AbstractMatrix{T}}) where T <: Real
     # calculate the loss for each model
-    return sum(loss(ComponentArray(
-        neural = θ.neural,
-        ode = θ.ode[i,:]
-    ), (model, timepoints, cpeptide_data[i,:])) for (i,model) in enumerate(models)) / length(models)
+    error = 0.0
+    for (i, model) in enumerate(models)
+        p_model = ComponentArray(ode = θ.ode[i,:], neural=θ.neural)
+        error += loss(p_model, (model, timepoints, cpeptide_data[i,:]))
+    end
+    return error / length(models)
 end
 
 function sample_initial_neural_parameters(chain::SimpleChain, n_initials::Int, rng::AbstractRNG)
@@ -373,7 +375,7 @@ function _optimize(optfunc::OptimizationFunction,
     number_of_iterations_lbfgs::Int
     ) where T <: Real
 
-    optprob = OptimizationProblem(optfunc, initial_parameters, (model, timepoints, cpeptide_data, neural_network_parameters);
+    optprob = OptimizationProblem(optfunc, initial_parameters, (model, timepoints, cpeptide_data, neural_network_parameters),
     lb = lower_bound, ub = upper_bound)
     optsol = Optimization.solve(optprob, LBFGS(linesearch=LineSearches.BackTracking()), maxiters=number_of_iterations_lbfgs)
 
@@ -442,12 +444,11 @@ end
 function train(models::AbstractVector{CPeptideCUDEModel}, timepoints::AbstractVector{T}, cpeptide_data::AbstractMatrix{T}, 
     neural_network_parameters::AbstractVector{T};
     initial_beta = -2.0,
-    lbfgs_lower_bound::V = -5.0,
+    lbfgs_lower_bound::V = -4.0,
     lbfgs_upper_bound::V = 1.0,
     lbfgs_iterations::Int = 1000
     ) where T <: Real where V <: Real
 
-    
     optsols = OptimizationSolution[]
     optfunc = OptimizationFunction(loss, AutoForwardDiff())
     for (i,model) in enumerate(models)
@@ -459,8 +460,8 @@ function train(models::AbstractVector{CPeptideCUDEModel}, timepoints::AbstractVe
 end
 
 function train(models::AbstractVector{CPeptideCUDEModel}, timepoints::AbstractVector{T}, cpeptide_data::AbstractVecOrMat{T}, rng::AbstractRNG; 
-    initial_guesses::Int = 100_000,
-    selected_initials::Int = 10,
+    initial_guesses::Int = 25_000,
+    selected_initials::Int = 25,
     lhs_lower_bound::V = -2.0,
     lhs_upper_bound::V = 0.0,
     n_conditional_parameters::Int = 1,
@@ -506,22 +507,44 @@ function train(models::AbstractVector{CPeptideCUDEModel}, timepoints::AbstractVe
 
 end
 
-function select_model(optsols::AbstractVector{OptimizationSolution}, 
-    models::AbstractVector{CPeptideCUDEModel}, 
-    timepoints::AbstractVector{T}, 
-    cpeptide_data::AbstractMatrix{T}) where T<:Real
-    
-    # compute the loss for each individual per model
-    individual_losses = zeros(length(models), length(optsols))
-    for (j,optsol) in enumerate(optsols)
-        for (i,model) in enumerate(models)
-            li = loss(optsol.u.ode[i], (model, timepoints, cpeptide_data[i,:], optsol.u.neural[:]))
-            individual_losses[i,j] = li
-        end
+function stratified_split(rng, types, f_train)
+    training_indices = Int[]
+    for type in unique(types)
+        type_indices = findall(types .== type)
+        n_train = Int(round(f_train * length(type_indices)))
+        selection = StatsBase.sample(rng, type_indices, n_train, replace=false)
+        append!(training_indices, selection)
+    end
+    training_indices = sort(training_indices)
+    testing_indices = setdiff(1:length(types), training_indices)
+    training_indices, testing_indices
+end
+
+function select_model(
+    models::AbstractVector{CPeptideCUDEModel},
+    timepoints::AbstractVector{T},
+    cpeptide_data::AbstractMatrix{T},
+    neural_network_parameters,
+    betas_train) where T<:Real
+
+    model_objectives = []
+    for (betas, p_nn) in zip(betas_train, neural_network_parameters)
+
+        initial = mean(betas)
+
+        optsols_valid = train(
+            models, timepoints, cpeptide_data, p_nn;
+            initial_beta = initial, lbfgs_lower_bound=-Inf,
+            lbfgs_upper_bound=Inf
+        )
+        objectives = [sol.objective for sol in optsols_valid]
+        push!(model_objectives, objectives)
     end
 
+    model_objectives = hcat(model_objectives...)
+
     # find the model that performs best on each individual
-    indices = [idx[2] for idx in argmin(individual_losses, dims=2)[:]]
+    indices = [idx[2] for idx in argmin(model_objectives, dims=2)[:]]
 
     # find the amount each model occurs in the best performing models
     frequency = countmap(indices)
@@ -531,3 +554,29 @@ function select_model(optsols::AbstractVector{OptimizationSolution},
 
     return best_model
 end
+
+# function select_model(optsols::AbstractVector{OptimizationSolution}, 
+#     models::AbstractVector{CPeptideCUDEModel}, 
+#     timepoints::AbstractVector{T}, 
+#     cpeptide_data::AbstractMatrix{T}) where T<:Real
+    
+#     # compute the loss for each individual per model
+#     individual_losses = zeros(length(models), length(optsols))
+#     for (j,optsol) in enumerate(optsols)
+#         for (i,model) in enumerate(models)
+#             li = loss(optsol.u.ode[i], (model, timepoints, cpeptide_data[i,:], optsol.u.neural[:]))
+#             individual_losses[i,j] = li
+#         end
+#     end
+
+#     # find the model that performs best on each individual
+#     indices = [idx[2] for idx in argmin(individual_losses, dims=2)[:]]
+
+#     # find the amount each model occurs in the best performing models
+#     frequency = countmap(indices)
+
+#     # select the model that is most frequently selected as the best model
+#     best_model = argmax([frequency[i] for i in sort(unique(indices))])
+
+#     return best_model
+# end

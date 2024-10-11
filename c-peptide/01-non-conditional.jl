@@ -94,4 +94,4 @@ figure_model_fit = let f = Figure(size=(775,300))
 end
 
 
-save("figures/non-conditional-average-does-not-generalize.eps", figure_model_fit)
+save("figures/non-conditional-average.eps", figure_model_fit)
