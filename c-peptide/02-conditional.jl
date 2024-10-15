@@ -1,6 +1,6 @@
 # Model fit to the train data and evaluation on the test data
 train_model = false
-extension = "png"
+extension = "eps"
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
 
@@ -48,17 +48,19 @@ if train_model
         file["depth"] = 2
         file["parameters"] = neural_network_parameters
         file["betas"] = betas
+        file["best_model_index"] = best_model_index
     end
 else
 
-    neural_network_parameters, betas = try
+    neural_network_parameters, betas, best_model_index = try
         jldopen("source_data/cude_neural_parameters.jld2") do file
-            file["parameters"], file["betas"]
+            file["parameters"], file["betas"], file["best_model_index"]
         end
     catch
         error("Trained weights not found! Please train the model first by setting train_model to true")
     end
 end
+
 # obtain the betas for the train data
 lb = minimum(betas[best_model_index]) - 0.1*abs(minimum(betas[best_model_index]))
 ub = maximum(betas[best_model_index]) + 0.1*abs(maximum(betas[best_model_index]))
@@ -103,6 +105,8 @@ model_fit_figure = let fig
 
     end
 
+    linkyaxes!(axs...)
+
     ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
     boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), log10.(objectives_test[test_data.types .== "NGT"]), color=COLORS["NGT"], width=0.75)
     boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),log10.(objectives_test[test_data.types .== "IGT"]), color=COLORS["IGT"], width=0.75)
@@ -146,6 +150,8 @@ model_fit_all_test = let fig
 
     end
 
+    linkyaxes!(axs...)
+
     Legend(fig[locations[end][1]+1, 0:4], axs[1], orientation=:horizontal)
 
     fig
@@ -183,6 +189,8 @@ model_fit_train = let fig
         scatter!(axs[i], train_data.timepoints, c_peptide_data[sol_idx,:] , color=(:black, 1), markersize=10, label="Data")
 
     end
+
+    linkyaxes!(axs...)
 
     ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
     boxplot!(ax, repeat([0], sum(train_data.types .== "NGT")), log10.(objectives_train[train_data.types .== "NGT"]), color=COLORS["NGT"], width=0.75)
@@ -354,7 +362,7 @@ glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1])
 
 colnames = ["Beta", "Glucose", "Production"]
 data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
-data = hcat(reshape(data, 20*20)...)
+data = hcat(reshape(data, 30*30)...)
 
 df = DataFrame(data', colnames)
 CSV.write("data/ohashi_production.csv", df)

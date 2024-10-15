@@ -87,11 +87,11 @@ figure_model_fit = let f = Figure(size=(775,300))
     errorbars!(ax_3, train_data.timepoints, mean(c_peptide_data[t2d,:], dims=1)[:], std(c_peptide_data[t2d,:], dims=1)[:], color=(:black, 1), whiskerwidth=10)
     
     Legend(f[2,1:3],ax, orientation=:horizontal, merge=true)
-    
+    linkyaxes!(ax, ax_2, ax_3)
     f 
 
 
 end
 
 
-save("figures/non-conditional-average.eps", figure_model_fit)
+save("figures/non-conditional-average.png", figure_model_fit)

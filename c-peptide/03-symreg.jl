@@ -1,5 +1,5 @@
 # Model fit to the train data and evaluation on the test data
-extension = "png"
+extension = "eps"
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
 
@@ -20,28 +20,45 @@ end
 
 figure_production = let f = Figure(size=(600,300))
 
+
+    ga = GridLayout(f[1,1])
+    gb = GridLayout(f[1,2])
     df = DataFrame(CSV.File("data/ohashi_production.csv"))
     beta_values = df[1:20, :Beta]
     
-    ax = Axis(f[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", title="Neural Network")
+    ax = Axis(ga[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", title="Neural Network")
     for (i, beta) in enumerate(beta_values)
         df_beta = df[df[!,:Beta] .== beta, :]        
-        lines!(ax, df_beta.Glucose, df_beta.Production, color = i, colorrange=(1,20), colormap=:viridis, label = "Beta = $beta_1")
+        lines!(ax, df_beta.Glucose, df_beta.Production, color = i, colorrange=(1,20), colormap=:viridis)
     end
     k_values = 167 .* beta_values.^3 .+ 21.8
     println(k_values)
-    ax2 = Axis(f[1,2], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", title="Symbolic")
+    ax2 = Axis(gb[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", title="Symbolic")
     for (i, k) in enumerate(k_values)
         df_beta = df[df[!,:Beta] .== beta_values[i], :]
         
         production_values = production.(df_beta.Glucose, k)        
-        lines!(ax2, df_beta.Glucose, production_values, color = i, colorrange=(1,20), colormap=:viridis, label = "Beta = $beta_1")
+        lines!(ax2, df_beta.Glucose, production_values, color = i, colorrange=(1,20), colormap=:viridis)
     end
-    Colorbar(f[1,3], limits=(beta_values[1], beta_values[end]))
+    Colorbar(f[1,3], limits=(beta_values[1], beta_values[end]), label="β")
+    
+    for (label, layout) in zip(["a", "b"], [ga, gb])
+        Label(layout[1, 1, TopLeft()], label,
+        fontsize = 18,
+        font = :bold,
+        padding = (0, 20, 8, 0),
+        halign = :right)
+    end
+
+    linkyaxes!(ax, ax2)
+
+    
     f
 
-
 end
+
+save("figures/supplementary/dose_response_neural_symbolic.$extension", figure_production, px_per_unit=4)
+
 
 t2dm = train_data.types .== "T2DM" # we filter on T2DM to compute the parameters from van Cauter (which discriminate between t2dm and ngt)
 
@@ -71,9 +88,8 @@ end
 betas = [optsol.u[1] for optsol in optsols]
 objectives = [optsol.objective for optsol in optsols]
 
-# TODO: combine figures in one
 model_fit_figure = let fig
-    fig = Figure(size = (775, 300))
+    fig = Figure(size = (775, 600))
     ga = GridLayout(fig[1,1:3], )
     gb = GridLayout(fig[1,4], nrow=1, ncol=1)
     # do the simulations
@@ -98,32 +114,14 @@ model_fit_figure = let fig
 
     end
 
+    linkyaxes!(axs...)
+
     ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
     boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), log10.(objectives[[train_data.types; test_data.types] .== "NGT"]), color=COLORS["NGT"], width=0.75)
     boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),log10.(objectives[[train_data.types; test_data.types] .== "IGT"]), color=COLORS["IGT"], width=0.75)
     boxplot!(ax, repeat([2], sum(test_data.types .== "T2DM")),log10.(objectives[[train_data.types; test_data.types] .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
 
     Legend(fig[2,1:3], axs[1], orientation=:horizontal)
-
-    for (label, layout) in zip(["a", "b"], [ga, gb])
-        Label(layout[1, 1, TopLeft()], label,
-        fontsize = 18,
-        font = :bold,
-        padding = (0, 20, 8, 0),
-        halign = :right)
-    end
-
-fig
-end
-
-#save("figures/model_fit_test_median.$extension", model_fit_figure, px_per_unit=4)
-
-# Correlation figure; 1st phase clamp, age, insulin sensitivity 
-correlation_figure = let fig
-    fig = Figure(size=(700,300))
-
-    #betas_train = optsols_train[argmin(objectives_train)].u.ode[:]
-    #betas_test = [optsol.u[1] for optsol in optsols_test]
 
     correlation_first = corspearman(betas, [train_data.first_phase; test_data.first_phase])
     correlation_second = corspearman(betas, [train_data.ages; test_data.ages])
@@ -141,11 +139,9 @@ correlation_figure = let fig
         "T2DM" => 10
     )
 
-    ga = GridLayout(fig[1,1])
-    gb = GridLayout(fig[1,2])
-    gc = GridLayout(fig[1,3])
+    gc = GridLayout(fig[3,1:4])
 
-    ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp [μIU mL⁻¹ min]", title="ρ = $(round(correlation_first, digits=4))")
+    ax_first = Axis(gc[1,1], xlabel="log₁₀ [kₘ]", ylabel= "1ˢᵗ Phase Clamp [μIU mL⁻¹ min]", title="ρ = $(round(correlation_first, digits=4))")
 
     #scatter!(ax_first, exp.(betas), train_data.first_phase, color = (:black, 0.2), markersize=15, label="Train Data", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
@@ -153,7 +149,7 @@ correlation_figure = let fig
         scatter!(ax_first, log10.(betas[type_indices]), [train_data.first_phase; test_data.first_phase][type_indices], color=COLORS[type], label="$type", marker=MAKERS[type], markersize=MARKERSIZES[type])
     end
 
-    ax_second = Axis(gb[1,1], xlabel="βᵢ", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
+    ax_second = Axis(gc[1,2], xlabel="log₁₀ [kₘ]", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
 
     #scatter!(ax_second, exp.(betas_train), train_data.ages, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
@@ -161,7 +157,7 @@ correlation_figure = let fig
         scatter!(ax_second, log10.(betas[type_indices]), [train_data.ages; test_data.ages][type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
     end
 
-    ax_di = Axis(gc[1,1], xlabel="βᵢ", ylabel= "Insulin Sensitivity Index", title="ρ = $(round(correlation_isi, digits=4))")
+    ax_di = Axis(gc[1,3], xlabel="log₁₀ [kₘ]", ylabel= "Insulin Sensitivity Index", title="ρ = $(round(correlation_isi, digits=4))")
 
     #scatter!(ax_di, exp.(betas_train), train_data.insulin_sensitivity, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
@@ -169,7 +165,7 @@ correlation_figure = let fig
         scatter!(ax_di, log10.(betas[type_indices]), [train_data.insulin_sensitivity; test_data.insulin_sensitivity][type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
     end
 
-    Legend(fig[2,1:3], ax_first, orientation=:horizontal)
+    Legend(fig[4,1:4], ax_first, orientation=:horizontal)
 
     for (label, layout) in zip(["a", "b", "c"], [ga, gb, gc])
         Label(layout[1, 1, TopLeft()], label,
@@ -178,10 +174,76 @@ correlation_figure = let fig
         padding = (0, 20, 8, 0),
         halign = :right)
     end
-    
-    fig
 
+fig
 end
 
-#save("figures/correlations_cude.$extension", correlation_figure, px_per_unit=4)
+save("figures/symbolic_regression_internal.$extension", model_fit_figure, px_per_unit=4)
+
+# Correlation figure; 1st phase clamp, age, insulin sensitivity 
+# correlation_figure = let fig
+#     fig = Figure(size=(700,300))
+
+#     #betas_train = optsols_train[argmin(objectives_train)].u.ode[:]
+#     #betas_test = [optsol.u[1] for optsol in optsols_test]
+
+#     correlation_first = corspearman(betas, [train_data.first_phase; test_data.first_phase])
+#     correlation_second = corspearman(betas, [train_data.ages; test_data.ages])
+#     correlation_isi = corspearman(betas, [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
+
+#     markers=['●', '▴', '■']
+#     MAKERS = Dict(
+#         "NGT" => '●',
+#         "IGT" => '▴',
+#         "T2DM" => '■'
+#     )
+#     MARKERSIZES = Dict(
+#         "NGT" => 10,
+#         "IGT" => 18,
+#         "T2DM" => 10
+#     )
+
+#     ga = GridLayout(fig[1,1])
+#     gb = GridLayout(fig[1,2])
+#     gc = GridLayout(fig[1,3])
+
+#     ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp [μIU mL⁻¹ min]", title="ρ = $(round(correlation_first, digits=4))")
+
+#     #scatter!(ax_first, exp.(betas), train_data.first_phase, color = (:black, 0.2), markersize=15, label="Train Data", marker='⋆')
+#     for (i,type) in enumerate(unique(test_data.types))
+#         type_indices = [train_data.types; test_data.types] .== type
+#         scatter!(ax_first, log10.(betas[type_indices]), [train_data.first_phase; test_data.first_phase][type_indices], color=COLORS[type], label="$type", marker=MAKERS[type], markersize=MARKERSIZES[type])
+#     end
+
+#     ax_second = Axis(gb[1,1], xlabel="βᵢ", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
+
+#     #scatter!(ax_second, exp.(betas_train), train_data.ages, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
+#     for (i,type) in enumerate(unique(test_data.types))
+#         type_indices = [train_data.types; test_data.types] .== type
+#         scatter!(ax_second, log10.(betas[type_indices]), [train_data.ages; test_data.ages][type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
+#     end
+
+#     ax_di = Axis(gc[1,1], xlabel="βᵢ", ylabel= "Insulin Sensitivity Index", title="ρ = $(round(correlation_isi, digits=4))")
+
+#     #scatter!(ax_di, exp.(betas_train), train_data.insulin_sensitivity, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
+#     for (i,type) in enumerate(unique(test_data.types))
+#         type_indices = [train_data.types; test_data.types] .== type
+#         scatter!(ax_di, log10.(betas[type_indices]), [train_data.insulin_sensitivity; test_data.insulin_sensitivity][type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
+#     end
+
+#     Legend(fig[2,1:3], ax_first, orientation=:horizontal)
+
+#     for (label, layout) in zip(["a", "b", "c"], [ga, gb, gc])
+#         Label(layout[1, 1, TopLeft()], label,
+#         fontsize = 18,
+#         font = :bold,
+#         padding = (0, 20, 8, 0),
+#         halign = :right)
+#     end
+    
+#     fig
+
+# end
+
+# #save("figures/correlations_cude.$extension", correlation_figure, px_per_unit=4)
 
