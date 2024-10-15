@@ -79,6 +79,23 @@ function c_peptide_kinetic_parameters(age::Real, t2dm::Bool)
     return k0, k1, k2
 end
 
+# TODO: Add docstring
+"""
+
+"""
+function c_peptide!(du, u, p, t, production::Function, glucose::LinearInterpolation, 
+    glucose_t0::Real, Cb::T, k0::T, k1::T, k2::T) where T <: Real
+    
+    ΔG = glucose(t) - glucose(glucose_t0)
+
+    # two c-peptide compartments
+    # plasma c-peptide
+    du[1] = -(k0 + k2) * u[1] + k1 * u[2] + Cb*k0 + production(ΔG, p[1])
+
+    # interstitial c-peptide
+    du[2] = -k1*u[2] + k2*u[1]
+end
+
 """
 c_peptide_ude!(du, u, p, t, chain::SimpleChain, glucose::LinearInterpolation, glucose_t0::Real, Cb::T, k0::T, k1::T, k2::T) where T <: Real
 
@@ -254,6 +271,40 @@ function CPeptideUDEModel(glucose_data::AbstractVector{T}, glucose_timepoints::A
 
     return CPeptideUDEModel(ode, chain)
 end
+
+struct CPeptideODEModel <: CPeptideModel
+    problem::ODEProblem
+    production::Function
+end
+
+# TODO: Add docstring
+function CPeptideODEModel(glucose_data::AbstractVector{T}, glucose_timepoints::AbstractVector{T}, age::Real, 
+    production::Function, cpeptide_data::AbstractVector{T}, t2dm::Bool) where T <: Real
+
+    # interpolate glucose data
+    glucose = LinearInterpolation(glucose_data, glucose_timepoints)
+    
+    # basal c-peptide
+    Cb = cpeptide_data[1]
+
+    # get kinetic parameters
+    k0, k1, k2 = c_peptide_kinetic_parameters(age, t2dm)
+
+    # construct the ude function
+    ude!(du, u, p, t) = c_peptide!(du, u, p, t, production, glucose, glucose_timepoints[1], Cb, k0, k1, k2)
+
+    # initial conditions
+    u0 = [Cb, (k2/k1)*Cb]
+
+    # time span
+    tspan = (glucose_timepoints[1], glucose_timepoints[end])
+
+    # construct the ode problem
+    ode = ODEProblem(ude!, u0, tspan)
+
+    return CPeptideODEModel(ode, production)
+end
+
 
 """
 loss(θ, (model, timepoints, cpeptide_data))
