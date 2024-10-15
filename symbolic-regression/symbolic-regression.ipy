@@ -11,19 +11,17 @@ y = np.array(data.loc[:, "Production"])
 
 # define the pySR model
 model = PySRRegressor(
-    niterations=100000,
+    niterations=1000,
     binary_operators=["+", "*"],
     unary_operators=[
-        "inv(x) = 1/x",
-        "neg(x)=-x"
+        "inv(x) = 1/x"
         # ^ Custom operator (julia syntax)
     ],
-    extra_sympy_mappings={"inv": lambda x: 1 / x, "neg": lambda x: -x},
+    extra_sympy_mappings={"inv": lambda x: 1 / x},
     # ^ Define operator for SymPy as well
     procs=8,
-    maxsize=20,
+    maxsize=18,
     populations=24,
-    turbo=True,
     equation_file="symbolic-regression/results/symbolic_regression_result.csv"
 )
 

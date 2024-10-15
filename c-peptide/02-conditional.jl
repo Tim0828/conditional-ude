@@ -349,8 +349,8 @@ save("figures/supplementary/correlations_other_cude.$extension", additional_corr
 betas_combined = exp.([betas_train; betas_test])
 glucose_combined = [train_data.glucose; test_data.glucose]
 
-beta_range = LinRange(minimum(betas_combined), maximum(betas_combined), 20)
-glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]), 20)
+beta_range = LinRange(minimum(betas_combined), maximum(betas_combined), 30)
+glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]), 30)
 
 colnames = ["Beta", "Glucose", "Production"]
 data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
