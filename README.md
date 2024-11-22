@@ -15,7 +15,7 @@ This repository contains the following folders:
 - `assets`: illustrations in the Readme files.
 - `c-peptide`: all code surrounding model fits of the UDE and the final symbolic equations on the c-peptide data, as well as the computation of indices of beta-cell function.
 - `data`: contains the data and the associated license used for this project.
-- `figures`: contains the figures saved from the code and the figure source files.
+- `figures`: contains the figures saved from the code.
 - `symbolic-regression`: all code and raw result files from the symbolic regression run.
 
 ## Dependencies
