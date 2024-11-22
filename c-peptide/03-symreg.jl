@@ -1,5 +1,9 @@
 # Model fit to the train data and evaluation on the test data
 extension = "eps"
+inch = 96
+pt = 4/3
+cm = inch / 2.54
+linewidth = 13.07245cm
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
 
@@ -18,7 +22,7 @@ function production(ΔG, k)
     return prod
 end
 
-figure_production = let f = Figure(size=(600,300))
+figure_production = let f = Figure(size=(linewidth,6cm), fontsize=10pt)
 
 
     ga = GridLayout(f[1,1])
@@ -44,7 +48,7 @@ figure_production = let f = Figure(size=(600,300))
     
     for (label, layout) in zip(["a", "b"], [ga, gb])
         Label(layout[1, 1, TopLeft()], label,
-        fontsize = 18,
+        fontsize = 12pt,
         font = :bold,
         padding = (0, 20, 8, 0),
         halign = :right)
@@ -57,7 +61,7 @@ figure_production = let f = Figure(size=(600,300))
 
 end
 
-save("figures/supplementary/dose_response_neural_symbolic.$extension", figure_production, px_per_unit=4)
+save("figures/supplementary/dose_response_neural_symbolic.$extension", figure_production, px_per_unit=300/inch)
 
 
 t2dm = train_data.types .== "T2DM" # we filter on T2DM to compute the parameters from van Cauter (which discriminate between t2dm and ngt)
@@ -89,14 +93,14 @@ betas = [optsol.u[1] for optsol in optsols]
 objectives = [optsol.objective for optsol in optsols]
 
 model_fit_figure = let fig
-    fig = Figure(size = (775, 600))
-    ga = GridLayout(fig[1,1:3], )
-    gb = GridLayout(fig[1,4], nrow=1, ncol=1)
+    fig = Figure(size = (linewidth, 10cm), fontsize=8pt)
+    gas = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
+    gb = GridLayout(fig[1,4])
     # do the simulations
     sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
     sols = [Array(solve(model.problem, p=betas[i], saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(all_models)]
     
-    axs = [Axis(ga[1,i], xlabel="Time [min]", ylabel="C-peptide [nM]", title=type) for (i,type) in enumerate(unique(test_data.types))]
+    axs = [Axis(gas[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nM]", title=type) for (i,type) in enumerate(unique(test_data.types))]
 
     for (i,type) in enumerate(unique(test_data.types))
 
@@ -109,17 +113,28 @@ model_fit_figure = let fig
         # find the median fit of the type
         sol_type = sols[type_indices][sol_idx]
 
-        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(:black, 1), linewidth=2, label="Model fit", linestyle=:dot)
-        scatter!(axs[i], test_data.timepoints, cpeptide_data_type[sol_idx,:] , color=(:black, 1), markersize=10, label="Data")
+        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:dot)
+        scatter!(axs[i], test_data.timepoints, cpeptide_data_type[sol_idx,:] , color=(COLORS[type], 1), markersize=5, label="Data")
 
     end
 
     linkyaxes!(axs...)
 
-    ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
-    boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), log10.(objectives[[train_data.types; test_data.types] .== "NGT"]), color=COLORS["NGT"], width=0.75)
-    boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),log10.(objectives[[train_data.types; test_data.types] .== "IGT"]), color=COLORS["IGT"], width=0.75)
-    boxplot!(ax, repeat([2], sum(test_data.types .== "T2DM")),log10.(objectives[[train_data.types; test_data.types] .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
+    ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="MSE", xticklabelrotation=pi/4)
+
+    jitter_width = 0.1
+
+    for (i, type) in enumerate(unique(train_data.types))
+        jitter = rand(length(objectives)) .* jitter_width .- jitter_width/2
+        type_indices = [train_data.types .== type; test_data.types .== type]
+        scatter!(ax, repeat([i-1], length(objectives[type_indices])) .+ jitter[type_indices] .- 0.1, objectives[type_indices], color=(COLORS[type], 0.8), markersize=3, label=type)
+        violin!(ax, repeat([i-1], length(objectives[type_indices])) .+ 0.05, objectives[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
+    end
+
+    # ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
+    # boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), log10.(objectives[[train_data.types; test_data.types] .== "NGT"]), color=COLORS["NGT"], width=0.75)
+    # boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),log10.(objectives[[train_data.types; test_data.types] .== "IGT"]), color=COLORS["IGT"], width=0.75)
+    # boxplot!(ax, repeat([2], sum(test_data.types .== "T2DM")),log10.(objectives[[train_data.types; test_data.types] .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
 
     Legend(fig[2,1:3], axs[1], orientation=:horizontal)
 
@@ -134,14 +149,15 @@ model_fit_figure = let fig
         "T2DM" => '■'
     )
     MARKERSIZES = Dict(
-        "NGT" => 10,
-        "IGT" => 18,
-        "T2DM" => 10
+        "NGT" => 5,
+        "IGT" => 9,
+        "T2DM" => 5
     )
 
     gc = GridLayout(fig[3,1:4])
+    gcs = [GridLayout(gc[1,1]), GridLayout(gc[1,2]), GridLayout(gc[1,3])]
 
-    ax_first = Axis(gc[1,1], xlabel="log₁₀ [kₘ]", ylabel= "1ˢᵗ Phase Clamp [μIU mL⁻¹ min]", title="ρ = $(round(correlation_first, digits=4))")
+    ax_first = Axis(gcs[1][1,1], xlabel="log₁₀ [kₘ]", ylabel= "1ˢᵗ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
 
     #scatter!(ax_first, exp.(betas), train_data.first_phase, color = (:black, 0.2), markersize=15, label="Train Data", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
@@ -149,7 +165,7 @@ model_fit_figure = let fig
         scatter!(ax_first, log10.(betas[type_indices]), [train_data.first_phase; test_data.first_phase][type_indices], color=COLORS[type], label="$type", marker=MAKERS[type], markersize=MARKERSIZES[type])
     end
 
-    ax_second = Axis(gc[1,2], xlabel="log₁₀ [kₘ]", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
+    ax_second = Axis(gcs[2][1,1], xlabel="log₁₀ [kₘ]", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
 
     #scatter!(ax_second, exp.(betas_train), train_data.ages, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
@@ -157,7 +173,7 @@ model_fit_figure = let fig
         scatter!(ax_second, log10.(betas[type_indices]), [train_data.ages; test_data.ages][type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
     end
 
-    ax_di = Axis(gc[1,3], xlabel="log₁₀ [kₘ]", ylabel= "Insulin Sensitivity Index", title="ρ = $(round(correlation_isi, digits=4))")
+    ax_di = Axis(gcs[3][1,1], xlabel="log₁₀ [kₘ]", ylabel= "Insulin Sensitivity Index", title="ρ = $(round(correlation_isi, digits=4))")
 
     #scatter!(ax_di, exp.(betas_train), train_data.insulin_sensitivity, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
@@ -167,18 +183,21 @@ model_fit_figure = let fig
 
     Legend(fig[4,1:4], ax_first, orientation=:horizontal)
 
-    for (label, layout) in zip(["a", "b", "c"], [ga, gb, gc])
+    for (label, layout) in zip(["a", "b", "c", "d", "e", "f", "g"], [gas; [gb]; gcs])
         Label(layout[1, 1, TopLeft()], label,
-        fontsize = 18,
+        fontsize = 10pt,
         font = :bold,
         padding = (0, 20, 8, 0),
         halign = :right)
     end
+rowgap!(fig.layout, 1, 0)
+rowgap!(fig.layout, 2, 5)
+rowgap!(fig.layout, 3, 5)
 
 fig
 end
 
-save("figures/symbolic_regression_internal.$extension", model_fit_figure, px_per_unit=4)
+save("figures/symbolic_regression_internal.$extension", model_fit_figure, px_per_unit=300/inch)
 
 # Correlation figure; 1st phase clamp, age, insulin sensitivity 
 # correlation_figure = let fig

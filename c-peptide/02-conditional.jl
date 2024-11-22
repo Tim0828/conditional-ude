@@ -1,6 +1,11 @@
 # Model fit to the train data and evaluation on the test data
 train_model = false
 extension = "eps"
+inch = 96
+pt = 4/3
+cm = inch / 2.54
+linewidth = 13.07245cm
+
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
 
@@ -80,14 +85,14 @@ betas_test = [optsol.u[1] for optsol in optsols]
 objectives_test = [optsol.objective for optsol in optsols]
 
 model_fit_figure = let fig
-    fig = Figure(size = (775, 300))
-    ga = GridLayout(fig[1,1:3], )
+    fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
+    ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
     gb = GridLayout(fig[1,4], nrow=1, ncol=1)
     # do the simulations
     sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
     sols = [Array(solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
     
-    axs = [Axis(ga[1,i], xlabel="Time [min]", ylabel="C-peptide [nM]", title=type) for (i,type) in enumerate(unique(test_data.types))]
+    axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(test_data.types))]
 
     for (i,type) in enumerate(unique(test_data.types))
 
@@ -100,25 +105,35 @@ model_fit_figure = let fig
         # find the median fit of the type
         sol_type = sols[type_indices][sol_idx]
 
-        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(:black, 1), linewidth=2, label="Model fit", linestyle=:dot)
-        scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:] , color=(:black, 1), markersize=10, label="Data")
+        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:dot)
+        scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=5, label="Data")
 
     end
 
     linkyaxes!(axs...)
 
-    ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
-    boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), log10.(objectives_test[test_data.types .== "NGT"]), color=COLORS["NGT"], width=0.75)
-    boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),log10.(objectives_test[test_data.types .== "IGT"]), color=COLORS["IGT"], width=0.75)
-    boxplot!(ax, repeat([2], sum(test_data.types .== "T2DM")),log10.(objectives_test[test_data.types .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
+    ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="MSE")
+
+    jitter_width = 0.1
+
+    for (i, type) in enumerate(unique(train_data.types))
+        jitter = rand(length(objectives_test)) .* jitter_width .- jitter_width/2
+        type_indices = test_data.types .== type
+        scatter!(ax, repeat([i-1], length(objectives_test[type_indices])) .+ jitter[type_indices] .- 0.1, objectives_test[type_indices], color=(COLORS[type], 0.8), markersize=3, label=type)
+        violin!(ax, repeat([i-1], length(objectives_test[type_indices])) .+ 0.05, objectives_test[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
+    end
+
+  #  boxplot!(ax, repeat([0], sum(test_data.types .== "NGT")), objectives_test[test_data.types .== "NGT"], color=COLORS["NGT"], width=0.75)
+   # boxplot!(ax, repeat([1], sum(test_data.types .== "IGT")),objectives_test[test_data.types .== "IGT"], color=COLORS["IGT"], width=0.75)
+   # boxplot!(ax, repeat([2], sum(test_data.types .== "T2DM")),objectives_test[test_data.types .== "T2DM"], color=COLORS["T2DM"], width=0.75)
 
     Legend(fig[2,1:3], axs[1], orientation=:horizontal)
 
-    for (label, layout) in zip(["a", "b"], [ga, gb])
+    for (label, layout) in zip(["a", "b", "c", "d"], [ga; gb])
         Label(layout[1, 1, TopLeft()], label,
-        fontsize = 18,
+        fontsize = 12,
         font = :bold,
-        padding = (0, 20, 8, 0),
+        padding = (0, 20, 12, 0),
         halign = :right)
     end
 
@@ -164,15 +179,15 @@ function argmedian(x)
 end
 
 model_fit_train = let fig
-    fig = Figure(size = (775, 300))
-    ga = GridLayout(fig[1,1:3], )
+    fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
+    ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
     gb = GridLayout(fig[1,4], nrow=1, ncol=1)
 
     # do the simulations
     sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
     sols = [Array(solve(model.problem, p=ComponentArray(ode=betas_train[i], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_train)]
     
-    axs = [Axis(ga[1,i], xlabel="Time [min]", ylabel="C-peptide [nM]", title=type) for (i,type) in enumerate(unique(train_data.types))]
+    axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(train_data.types))]
 
     for (i,type) in enumerate(unique(train_data.types))
 
@@ -185,25 +200,35 @@ model_fit_train = let fig
         # find the median fit of the type
         sol_type = sols[type_indices][sol_idx]
 
-        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(:black, 1), linewidth=2, label="Model fit", linestyle=:dot)
-        scatter!(axs[i], train_data.timepoints, c_peptide_data[sol_idx,:] , color=(:black, 1), markersize=10, label="Data")
+        lines!(axs[i], sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:dot)
+        scatter!(axs[i], train_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=5, label="Data")
 
     end
 
     linkyaxes!(axs...)
 
     ax = Axis(gb[1,1], xticks=([0,1,2], ["NGT", "IGT", "T2DM"]), xlabel="Type", ylabel="log₁₀ (Error)")
-    boxplot!(ax, repeat([0], sum(train_data.types .== "NGT")), log10.(objectives_train[train_data.types .== "NGT"]), color=COLORS["NGT"], width=0.75)
-    boxplot!(ax, repeat([1], sum(train_data.types .== "IGT")),log10.(objectives_train[train_data.types .== "IGT"]), color=COLORS["IGT"], width=0.75)
-    boxplot!(ax, repeat([2], sum(train_data.types .== "T2DM")),log10.(objectives_train[train_data.types .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
+   
+    jitter_width = 0.1
+
+    for (i, type) in enumerate(unique(train_data.types))
+        jitter = rand(length(objectives_train)) .* jitter_width .- jitter_width/2
+        type_indices = train_data.types .== type
+        scatter!(ax, repeat([i-1], length(objectives_train[type_indices])) .+ jitter[type_indices] .- 0.1, objectives_train[type_indices], color=(COLORS[type], 0.8), markersize=3, label=type)
+        violin!(ax, repeat([i-1], length(objectives_train[type_indices])) .+ 0.05, objectives_train[type_indices], color=(COLORS[type], 0.8), width=0.75, side=:right, strokewidth=1, datalimits=(0,Inf))
+    end
+   
+    # boxplot!(ax, repeat([0], sum(train_data.types .== "NGT")), log10.(objectives_train[train_data.types .== "NGT"]), color=COLORS["NGT"], width=0.75)
+    # boxplot!(ax, repeat([1], sum(train_data.types .== "IGT")),log10.(objectives_train[train_data.types .== "IGT"]), color=COLORS["IGT"], width=0.75)
+    # boxplot!(ax, repeat([2], sum(train_data.types .== "T2DM")),log10.(objectives_train[train_data.types .== "T2DM"]), color=COLORS["T2DM"], width=0.75)
 
     Legend(fig[2,1:3], axs[1], orientation=:horizontal)
 
-    for (label, layout) in zip(["a", "b"], [ga, gb])
+    for (label, layout) in zip(["a", "b", "c", "d"], [ga; gb])
         Label(layout[1, 1, TopLeft()], label,
-        fontsize = 18,
+        fontsize = 12,
         font = :bold,
-        padding = (0, 20, 8, 0),
+        padding = (0, 20, 12, 0),
         halign = :right)
     end
 
@@ -215,7 +240,7 @@ save("figures/supplementary/model_fit_train_median.$extension", model_fit_train,
 
 # Correlation figure; 1st phase clamp, age, insulin sensitivity 
 correlation_figure = let fig
-    fig = Figure(size=(700,300))
+    fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
 
     #betas_train = optsols_train[argmin(objectives_train)].u.ode[:]
     #betas_test = [optsol.u[1] for optsol in optsols_test]
@@ -231,18 +256,18 @@ correlation_figure = let fig
         "T2DM" => '■'
     )
     MARKERSIZES = Dict(
-        "NGT" => 10,
-        "IGT" => 18,
-        "T2DM" => 10
+        "NGT" => 5,
+        "IGT" => 9,
+        "T2DM" => 5
     )
 
     ga = GridLayout(fig[1,1])
     gb = GridLayout(fig[1,2])
     gc = GridLayout(fig[1,3])
 
-    ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp [μIU mL⁻¹ min]", title="ρ = $(round(correlation_first, digits=4))")
+    ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "1ˢᵗ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
 
-    scatter!(ax_first, exp.(betas_train), train_data.first_phase, color = (:black, 0.2), markersize=15, label="Train Data", marker='⋆')
+    scatter!(ax_first, exp.(betas_train), train_data.first_phase, color = (:black, 0.2), markersize=10, label="Train Data", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = test_data.types .== type
         scatter!(ax_first, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], color=COLORS[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
@@ -250,15 +275,15 @@ correlation_figure = let fig
 
     ax_second = Axis(gb[1,1], xlabel="βᵢ", ylabel= "Age [y]", title="ρ = $(round(correlation_second, digits=4))")
 
-    scatter!(ax_second, exp.(betas_train), train_data.ages, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
+    scatter!(ax_second, exp.(betas_train), train_data.ages, color = (:black, 0.2), markersize=10, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = test_data.types .== type
         scatter!(ax_second, exp.(betas_test[type_indices]), test_data.ages[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
     end
 
-    ax_di = Axis(gc[1,1], xlabel="βᵢ", ylabel= "Insulin Sensitivity Index", title="ρ = $(round(correlation_isi, digits=4))")
+    ax_di = Axis(gc[1,1], xlabel="βᵢ", ylabel= "Ins. Sens. Index", title="ρ = $(round(correlation_isi, digits=4))")
 
-    scatter!(ax_di, exp.(betas_train), train_data.insulin_sensitivity, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
+    scatter!(ax_di, exp.(betas_train), train_data.insulin_sensitivity, color = (:black, 0.2), markersize=10, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
         type_indices = test_data.types .== type
         scatter!(ax_di, exp.(betas_test[type_indices]), test_data.insulin_sensitivity[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
@@ -268,7 +293,7 @@ correlation_figure = let fig
 
     for (label, layout) in zip(["a", "b", "c"], [ga, gb, gc])
         Label(layout[1, 1, TopLeft()], label,
-        fontsize = 18,
+        fontsize = 12,
         font = :bold,
         padding = (0, 20, 8, 0),
         halign = :right)
@@ -281,7 +306,7 @@ end
 save("figures/correlations_cude.$extension", correlation_figure, px_per_unit=4)
 
 # supplementary correlation: 2nd phase clamp, body weight, bmi, disposition index
-additional_correlation_figure = let fig = Figure(size=(1000,300))
+additional_correlation_figure = let fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
 
    correlation_first = corspearman([betas_train; betas_test], [train_data.second_phase; test_data.second_phase])
    correlation_second = corspearman([betas_train; betas_test], [train_data.body_weights; test_data.body_weights])
@@ -295,9 +320,9 @@ additional_correlation_figure = let fig = Figure(size=(1000,300))
        "T2DM" => '■'
    )
    MARKERSIZES = Dict(
-       "NGT" => 10,
-       "IGT" => 18,
-       "T2DM" => 10
+       "NGT" => 5,
+       "IGT" => 9,
+       "T2DM" => 5
    )
 
    ga = GridLayout(fig[1,1])
@@ -305,9 +330,9 @@ additional_correlation_figure = let fig = Figure(size=(1000,300))
    gc = GridLayout(fig[1,3])
    gd = GridLayout(fig[1,4])
 
-   ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "2ⁿᵈ Phase Clamp [μIU mL⁻¹ min]", title="ρ = $(round(correlation_first, digits=4))")
+   ax_first = Axis(ga[1,1], xlabel="βᵢ", ylabel= "2ⁿᵈ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
 
-   scatter!(ax_first, exp.(betas_train), train_data.second_phase, color = (:black, 0.2), markersize=15, label="Train Data", marker='⋆')
+   scatter!(ax_first, exp.(betas_train), train_data.second_phase, color = (:black, 0.2), markersize=10, label="Train Data", marker='⋆')
    for (i,type) in enumerate(unique(test_data.types))
        type_indices = test_data.types .== type
        scatter!(ax_first, exp.(betas_test[type_indices]), test_data.second_phase[type_indices], color=COLORS[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
@@ -315,7 +340,7 @@ additional_correlation_figure = let fig = Figure(size=(1000,300))
 
    ax_second = Axis(gb[1,1], xlabel="βᵢ", ylabel= "Body weight [kg]", title="ρ = $(round(correlation_second, digits=4))")
 
-   scatter!(ax_second, exp.(betas_train), train_data.body_weights, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
+   scatter!(ax_second, exp.(betas_train), train_data.body_weights, color = (:black, 0.2), markersize=10, label="Train", marker='⋆')
    for (i,type) in enumerate(unique(test_data.types))
        type_indices = test_data.types .== type
        scatter!(ax_second, exp.(betas_test[type_indices]), test_data.body_weights[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
@@ -323,14 +348,14 @@ additional_correlation_figure = let fig = Figure(size=(1000,300))
 
    ax_di = Axis(gc[1,1], xlabel="βᵢ", ylabel= "BMI [kg/m²]", title="ρ = $(round(correlation_total, digits=4))")
 
-   scatter!(ax_di, exp.(betas_train), train_data.bmis, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
+   scatter!(ax_di, exp.(betas_train), train_data.bmis, color = (:black, 0.2), markersize=10, label="Train", marker='⋆')
    for (i,type) in enumerate(unique(test_data.types))
        type_indices = test_data.types .== type
        scatter!(ax_di, exp.(betas_test[type_indices]), test_data.bmis[type_indices], color=COLORS[type], label=type, marker=MAKERS[type], markersize=MARKERSIZES[type])
    end
 
 
-   ax_isi = Axis(gd[1,1], xlabel="βᵢ", ylabel= "Clamp Disposition Index", title="ρ = $(round(correlation_isi, digits=4))")
+   ax_isi = Axis(gd[1,1], xlabel="βᵢ", ylabel= "Clamp DI", title="ρ = $(round(correlation_isi, digits=4))")
 
     scatter!(ax_isi, exp.(betas_train), train_data.disposition_indices, color = (:black, 0.2), markersize=15, label="Train", marker='⋆')
     for (i,type) in enumerate(unique(test_data.types))
@@ -342,7 +367,7 @@ additional_correlation_figure = let fig = Figure(size=(1000,300))
 
    for (label, layout) in zip(["a", "b", "c", "d"], [ga, gb, gc, gd])
        Label(layout[1, 1, TopLeft()], label,
-       fontsize = 18,
+       fontsize = 12,
        font = :bold,
        padding = (0, 20, 8, 0),
        halign = :right)
@@ -357,12 +382,33 @@ save("figures/supplementary/correlations_other_cude.$extension", additional_corr
 betas_combined = exp.([betas_train; betas_test])
 glucose_combined = [train_data.glucose; test_data.glucose]
 
-beta_range = LinRange(minimum(betas_combined), maximum(betas_combined), 30)
-glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]), 30)
+beta_range = LinRange(minimum(betas_combined), maximum(betas_combined)*1.1, 30)
+glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]) * 3, 100)
 
 colnames = ["Beta", "Glucose", "Production"]
 data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
-data = hcat(reshape(data, 30*30)...)
+data = hcat(reshape(data, 100*30)...)
 
 df = DataFrame(data', colnames)
-CSV.write("data/ohashi_production.csv", df)
+
+
+figure_production = let f = Figure(size=(800,600))
+
+
+    ga = GridLayout(f[1,1])
+    gb = GridLayout(f[1,2])
+    #df = DataFrame(CSV.File("data/ohashi_production.csv"))
+    beta_values = df[1:30, :Beta]
+    
+    ax = Axis(ga[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", title="Neural Network")
+    for (i, beta) in enumerate(beta_values)
+        df_beta = df[df[!,:Beta] .== beta, :]        
+        lines!(ax, df_beta.Glucose, df_beta.Production, color = i, colorrange=(1,30), colormap=:viridis)
+    end
+
+    Colorbar(f[1,2], limits=(beta_values[1], beta_values[end]), label="β")    
+    f
+
+end
+
+#CSV.write("data/ohashi_production.csv", df)
