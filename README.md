@@ -17,6 +17,7 @@ This repository contains the following folders:
 - `data`: contains the data and the associated license used for this project.
 - `figures`: contains the figures saved from the code.
 - `symbolic-regression`: all code and raw result files from the symbolic regression run.
+- `source_data`: all raw results from the code runs.
 
 ## Dependencies
 Dependencies are split between Julia and Python.
