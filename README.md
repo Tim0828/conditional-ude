@@ -1,7 +1,5 @@
 # Conditional UDE
-Repository accompanying the manuscript on conditional universal differential equations. The paper can be accessed here:
-
-<!-- ADD CITATION -->
+Repository accompanying the manuscript on conditional universal differential equations.
 
 ![Conditional UDE](assets/cude_schema.png)
 
