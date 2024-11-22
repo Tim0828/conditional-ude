@@ -19,6 +19,9 @@ This repository contains the following folders:
 - `symbolic-regression`: all code and raw result files from the symbolic regression run.
 
 ## Dependencies
+Dependencies are split between Julia and Python.
+
+### Julia
 Used packages and versions are documented in the `Project.toml` file. Julia's package manager `pkg` automatically takes care of installing the correct versions. To install the dependencies, open Julia in the repository path.
 
 ```
@@ -36,8 +39,11 @@ Instantiate the environment to install the packages:
 pkg> instantiate
 ```
 
+### Python
+Poetry was used for package management. Packages are included in the `pyproject.toml` file.
+
 ## Data sources
-The glucose, insulin, and c-peptide data during both the OGTT and the hyperglycemic clamp were originally taken from Okuno et al. (2013)[^1], and also used by Ohashi et al. (2015)[^2] and Ohashi et al. (2018)[^3]. As an external dataset, OGTT data from 20 individuals was used from Fujita et al. (2023)[^4]
+The glucose, insulin, and c-peptide data during both the OGTT and the clamp experiments were originally taken from Okuno et al. (2013)[^1], and also used by Ohashi et al. (2015)[^2] and Ohashi et al. (2018)[^3]. As an external dataset, OGTT data from 20 individuals was used from Fujita et al. (2023)[^4]
 
 [^1]: Okuno, Y., Komada, H., Sakaguchi, K., Nakamura, T., Hashimoto, N., Hirota, Y., Ogawa, W., Seino, S.: Postprandial serum c-peptide to plasma glucose concentration ratio correlates with oral glucose tolerance test- and glucose clamp-based disposition indexes. Metabolism: Clinical and Experimental 62, 1470–1476 (2013) https://doi.org/10.1016/j.metabol.2013.05.022
 
