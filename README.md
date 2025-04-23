@@ -1,3 +1,5 @@
+<a href="https://www.biorxiv.org/content/10.1101/2025.01.13.632692v1"> <img alt="Preprint Badge" src="https://img.shields.io/badge/bioR%CF%87iv-10.1101%2F2025.01.13.632692v1-red"></a>
+
 # Conditional UDE
 Repository accompanying the manuscript on conditional universal differential equations.
 
@@ -40,6 +42,22 @@ pkg> instantiate
 
 ### Python
 Poetry was used for package management. Packages are included in the `pyproject.toml` file.
+
+## Citation
+When using the methodology/code from this repository, please cite:
+
+- de Rooij, M., van Riel, N.A.W., and O'Donovan, S.D. Conditional Universal Differential Equations Simultaneously Capture Population Level Dynamics and Inter-individual Variation in Human C-peptide Production. _bioRxiv_ 2025.01.13.632692 (2025) DOI: [https://doi.org/10.1101/2025.01.13.632692](https://doi.org/10.1101/2025.01.13.632692)
+
+**BibTeX Entry**
+```latex
+@article{derooij2025conditionalude,
+  title={Conditional Universal Differential Equations Simultaneously Capture Population Level Dynamics and Inter-individual Variation in Human C-peptide Production},
+  author={{de Rooij}, Max and {van Riel}, Natal A. W. and {O'Donovan}, Shauna D."},
+  journal={bioRxiv preprint bioRxiv:2025.01.13.632692},
+  year={2025},
+  doi={https://doi.org/10.1101/2025.01.13.632692}
+}
+```
 
 ## Data sources
 The glucose, insulin, and c-peptide data during both the OGTT and the clamp experiments were originally taken from Okuno et al. (2013)[^1], and also used by Ohashi et al. (2015)[^2] and Ohashi et al. (2018)[^3]. As an external dataset, OGTT data from 20 individuals was used from Fujita et al. (2023)[^4]
