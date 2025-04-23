@@ -35,3 +35,5 @@ others
 poetry.lock
 
 symbolic-regression/old
+
+figures/eccb

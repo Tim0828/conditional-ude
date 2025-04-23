@@ -13,7 +13,7 @@ using Optimization, OptimizationOptimisers, OptimizationOptimJL
 using SciMLSensitivity, LineSearches
 
 COLORS = Dict(
-    "T2DM" => RGBf(1/255, 120/255, 80/255),
+    "T2DM" => (1/255, 120/255, 80/255),
     "NGT" => RGBf(1/255, 101/255, 157/255),
     "IGT" => RGBf(201/255, 78/255, 0/255)
 )
