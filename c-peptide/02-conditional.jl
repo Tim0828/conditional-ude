@@ -1,12 +1,12 @@
 # Model fit to the train data and evaluation on the test data
-train_model = false
-extension = "eps"
+train_model = true
+extension = "png"
 inch = 96
 pt = 4/3
 cm = inch / 2.54
 linewidth = 13.07245cm
-MANUSCRIPT_FIGURES = false
-ECCB_FIGURES = true
+MANUSCRIPT_FIGURES = true
+ECCB_FIGURES = false
 FONTS = (
     ; regular = "Fira Sans Light",
     bold = "Fira Sans SemiBold",
@@ -95,7 +95,10 @@ function argmedian(x)
     return argmin(abs.(x .- median(x)))
 end
 
+
+
 if MANUSCRIPT_FIGURES
+    # model fit figures 
     model_fit_figure = let fig
         fig = Figure(size = (linewidth, 6cm), fontsize=8pt)
         ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
@@ -421,158 +424,36 @@ if MANUSCRIPT_FIGURES
 
     #CSV.write("data/ohashi_production.csv", df)
 end
-# ECCB submission
-COLORS = Dict(
-    "NGT" => RGBf(197/255, 205/255, 229/255),
-    "IGT" => RGBf(110/255, 129/255, 192/255),
-    "T2DM" => RGBf(41/255, 55/255, 148/255)
-)
 
-COLORS_2 = Dict(
-    "NGT" => RGBf(205/255, 234/255, 235/255),
-    "IGT" => RGBf(5/255, 149/255, 154/255),
-    "T2DM" => RGBf(3/255, 75/255, 77/255)
-)
-
-pagewidth = 21cm
-margin = 0.02 * pagewidth
-
-textwidth = pagewidth - 2 * margin
-aspect = 1
-
-data_figure = let f = Figure(
-    size = (0.25textwidth + 0.1textwidth, aspect*0.25textwidth), 
-    fontsize=7pt, fonts = FONTS,
-    backgroundcolor=:transparent)
-
-    # show the mean data
-    cpeptide = [train_data.cpeptide; test_data.cpeptide]
-    types = [train_data.types; test_data.types]
-    timepoints = train_data.timepoints
-
-    MARKERS = Dict(
-        "NGT" => '●',
-        "IGT" => '▴',
-        "T2DM" => '■'
-    )
-    MARKERSIZES = Dict(
-        "NGT" => 5pt,
-        "IGT" => 9pt,
-        "T2DM" => 5pt
+if ECCB_FIGURES
+    # ECCB submission
+    COLORS = Dict(
+        "NGT" => RGBf(197/255, 205/255, 229/255),
+        "IGT" => RGBf(110/255, 129/255, 192/255),
+        "T2DM" => RGBf(41/255, 55/255, 148/255)
     )
 
-    ax = Axis(f[1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", 
-    backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
-    for (i, type) in enumerate(unique(types))
-        type_indices = types .== type
-        c_peptide_data = cpeptide[type_indices,:]
-        mean_c_peptide = mean(c_peptide_data, dims=1)[:]
-        std_c_peptide = std(c_peptide_data, dims=1)[:]
-
-        lines!(ax, timepoints, mean_c_peptide, color=(COLORS[type], 1), label="$type", linewidth=2)
-        scatter!(ax, timepoints, mean_c_peptide, color=(COLORS[type], 1), markersize=MARKERSIZES[type], marker=MARKERS[type], label="$type")
-        #band!(ax, timepoints, mean_c_peptide .- std_c_peptide, mean_c_peptide .+ std_c_peptide, color=(COLORS[type], 0.2), label="Std $type")
-    end
-    Legend(f[1,2], ax, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
-    f
-end
-
-save("figures/eccb/data.$extension", data_figure, px_per_unit=600/inch)
-
-glucose_figure = let f = Figure(
-    size = (0.25textwidth + 0.1textwidth, aspect*0.25textwidth), 
-    fontsize=7pt, fonts = FONTS,
-    backgroundcolor=:transparent)
-
-    # show the mean data
-    glucose = [train_data.glucose; test_data.glucose]
-    types = [train_data.types; test_data.types]
-    timepoints = train_data.timepoints
-
-    MARKERS = Dict(
-        "NGT" => '●',
-        "IGT" => '▴',
-        "T2DM" => '■'
-    )
-    MARKERSIZES = Dict(
-        "NGT" => 5pt,
-        "IGT" => 9pt,
-        "T2DM" => 5pt
+    COLORS_2 = Dict(
+        "NGT" => RGBf(205/255, 234/255, 235/255),
+        "IGT" => RGBf(5/255, 149/255, 154/255),
+        "T2DM" => RGBf(3/255, 75/255, 77/255)
     )
 
-    ax = Axis(f[1,1], xlabel="Time [min]", ylabel="Gₚₗ [mmol L⁻¹]", 
-    backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
-    for (i, type) in enumerate(unique(types))
-        type_indices = types .== type
-        glucose_data = glucose[type_indices,:]
-        mean_glucose = mean(glucose_data, dims=1)[:]
-        std_glucose = std(glucose_data, dims=1)[:]
+    pagewidth = 21cm
+    margin = 0.02 * pagewidth
 
-        lines!(ax, timepoints, mean_glucose, color=(COLORS[type], 1), label="$type", linewidth=2)
-        scatter!(ax, timepoints, mean_glucose, color=(COLORS[type], 1), markersize=MARKERSIZES[type], marker=MARKERS[type], label="$type")
-        errorbars!(ax, timepoints, mean_glucose, std_glucose, color=(COLORS[type], 1), whiskerwidth=6, label="$type")
-        #band!(ax, timepoints, mean_c_peptide .- std_c_peptide, mean_c_peptide .+ std_c_peptide, color=(COLORS[type], 0.2), label="Std $type")
-    end
-    Legend(f[1,2], ax, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
-    f
-end
+    textwidth = pagewidth - 2 * margin
+    aspect = 1
 
-save("figures/eccb/glucose.svg", glucose_figure, px_per_unit=600/inch)
+    data_figure = let f = Figure(
+        size = (0.25textwidth + 0.1textwidth, aspect*0.25textwidth), 
+        fontsize=7pt, fonts = FONTS,
+        backgroundcolor=:transparent)
 
-figure_production = let f = Figure(size = (0.25textwidth, 0.25aspect*textwidth), 
-    fontsize=7pt, fonts = FONTS,
-    backgroundcolor=:transparent)
-
-    # sample data for symbolic regression
-    betas_combined = exp.([betas_train; betas_test])
-    glucose_combined = [train_data.glucose; test_data.glucose]
-
-    beta_range = LinRange(minimum(betas_combined), maximum(betas_combined)*1.1, 3)
-    glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]) * 3, 100)
-
-    colnames = ["Beta", "Glucose", "Production"]
-    data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
-    data = hcat(reshape(data, 100*3)...)
-
-    df = DataFrame(data', colnames)
-
-    #df = DataFrame(CSV.File("data/ohashi_production.csv"))
-    beta_values = df[1:3, :Beta]
-    types = ["NGT", "IGT", "T2DM"]
-    
-    ax = Axis(f[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", 
-    backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
-    for (i, beta) in enumerate(beta_values)
-        df_beta = df[df[!,:Beta] .== beta, :]        
-        lines!(ax, df_beta.Glucose, df_beta.Production, color = COLORS[types[i]], linewidth=2)
-    end
-
-    f
-
-end
-
-save("figures/eccb/production.svg", figure_production, px_per_unit=600/inch)
-
-model_fit_figure = let fig = Figure(size = (0.25textwidth + 0.1*textwidth, 0.25aspect*textwidth), 
-    fontsize=7pt, fonts = FONTS,
-    backgroundcolor=:transparent)
-    
-    # do the simulations
-    sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
-    sols = [Array(solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
-    
-    ax = Axis(fig[1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", 
-    backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
-    for (i,type) in enumerate(unique(test_data.types))
-
-        type_indices = test_data.types .== type
-
-        c_peptide_data = test_data.cpeptide[type_indices,:]
-
-        sol_idx = findfirst(objectives_test[type_indices] .== median(objectives_test[type_indices]))
-
-        # find the median fit of the type
-        sol_type = sols[type_indices][sol_idx]
+        # show the mean data
+        cpeptide = [train_data.cpeptide; test_data.cpeptide]
+        types = [train_data.types; test_data.types]
+        timepoints = train_data.timepoints
 
         MARKERS = Dict(
             "NGT" => '●',
@@ -585,51 +466,176 @@ model_fit_figure = let fig = Figure(size = (0.25textwidth + 0.1*textwidth, 0.25a
             "T2DM" => 5pt
         )
 
-        lines!(ax, sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:solid)
-        scatter!(ax, test_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=MARKERSIZES[type], marker=MARKERS[type], label="$type")
+        ax = Axis(f[1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", 
+        backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
+        for (i, type) in enumerate(unique(types))
+            type_indices = types .== type
+            c_peptide_data = cpeptide[type_indices,:]
+            mean_c_peptide = mean(c_peptide_data, dims=1)[:]
+            std_c_peptide = std(c_peptide_data, dims=1)[:]
 
-    end
-    Legend(fig[1,2], ax, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
-
-fig
-end
-
-save("figures/eccb/model_fit.$extension", model_fit_figure, px_per_unit=600/inch)
-
-correlation_figure = let fig = Figure(size = (0.3textwidth + 0.1*textwidth, 0.25aspect*textwidth), 
-    fontsize=7pt, fonts = FONTS,
-    backgroundcolor=:transparent)
-
-    #betas_train = optsols_train[argmin(objectives_train)].u.ode[:]
-    #betas_test = [optsol.u[1] for optsol in optsols_test]
-
-    correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
-    
-    markers=['●', '▴', '■']
-    MAKERS = Dict(
-        "NGT" => '●',
-        "IGT" => '▴',
-        "T2DM" => '■'
-    )
-    MARKERSIZES = Dict(
-        "NGT" => 5,
-        "IGT" => 9,
-        "T2DM" => 5
-    )
-
-
-    ax_first = Axis(fig[1,1], xlabel="βᵢ", ylabel= "First Phase Clamp", title="ρ = $(round(correlation_first, digits=4))", backgroundcolor=:transparent, xgridvisible=false, ygridvisible=false, xlabelfont=:bold, ylabelfont=:bold)
-
-    scatter!(ax_first, exp.(betas_train), train_data.first_phase, color = (:black, 0.4), markersize=12, label="Train Data", marker='×')
-    for (i,type) in enumerate(unique(test_data.types))
-        type_indices = test_data.types .== type
-        scatter!(ax_first, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], color=COLORS[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
+            lines!(ax, timepoints, mean_c_peptide, color=(COLORS[type], 1), label="$type", linewidth=2)
+            scatter!(ax, timepoints, mean_c_peptide, color=(COLORS[type], 1), markersize=MARKERSIZES[type], marker=MARKERS[type], label="$type")
+            #band!(ax, timepoints, mean_c_peptide .- std_c_peptide, mean_c_peptide .+ std_c_peptide, color=(COLORS[type], 0.2), label="Std $type")
+        end
+        Legend(f[1,2], ax, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
+        f
     end
 
-    Legend(fig[1,2], ax_first, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
-    
+    save("figures/eccb/data.$extension", data_figure, px_per_unit=600/inch)
+
+    glucose_figure = let f = Figure(
+        size = (0.25textwidth + 0.1textwidth, aspect*0.25textwidth), 
+        fontsize=7pt, fonts = FONTS,
+        backgroundcolor=:transparent)
+
+        # show the mean data
+        glucose = [train_data.glucose; test_data.glucose]
+        types = [train_data.types; test_data.types]
+        timepoints = train_data.timepoints
+
+        MARKERS = Dict(
+            "NGT" => '●',
+            "IGT" => '▴',
+            "T2DM" => '■'
+        )
+        MARKERSIZES = Dict(
+            "NGT" => 5pt,
+            "IGT" => 9pt,
+            "T2DM" => 5pt
+        )
+
+        ax = Axis(f[1,1], xlabel="Time [min]", ylabel="Gₚₗ [mmol L⁻¹]", 
+        backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
+        for (i, type) in enumerate(unique(types))
+            type_indices = types .== type
+            glucose_data = glucose[type_indices,:]
+            mean_glucose = mean(glucose_data, dims=1)[:]
+            std_glucose = std(glucose_data, dims=1)[:]
+
+            lines!(ax, timepoints, mean_glucose, color=(COLORS[type], 1), label="$type", linewidth=2)
+            scatter!(ax, timepoints, mean_glucose, color=(COLORS[type], 1), markersize=MARKERSIZES[type], marker=MARKERS[type], label="$type")
+            errorbars!(ax, timepoints, mean_glucose, std_glucose, color=(COLORS[type], 1), whiskerwidth=6, label="$type")
+            #band!(ax, timepoints, mean_c_peptide .- std_c_peptide, mean_c_peptide .+ std_c_peptide, color=(COLORS[type], 0.2), label="Std $type")
+        end
+        Legend(f[1,2], ax, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
+        f
+    end
+
+    save("figures/eccb/glucose.svg", glucose_figure, px_per_unit=600/inch)
+
+    figure_production = let f = Figure(size = (0.25textwidth, 0.25aspect*textwidth), 
+        fontsize=7pt, fonts = FONTS,
+        backgroundcolor=:transparent)
+
+        # sample data for symbolic regression
+        betas_combined = exp.([betas_train; betas_test])
+        glucose_combined = [train_data.glucose; test_data.glucose]
+
+        beta_range = LinRange(minimum(betas_combined), maximum(betas_combined)*1.1, 3)
+        glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]) * 3, 100)
+
+        colnames = ["Beta", "Glucose", "Production"]
+        data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
+        data = hcat(reshape(data, 100*3)...)
+
+        df = DataFrame(data', colnames)
+
+        #df = DataFrame(CSV.File("data/ohashi_production.csv"))
+        beta_values = df[1:3, :Beta]
+        types = ["NGT", "IGT", "T2DM"]
+        
+        ax = Axis(f[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", 
+        backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
+        for (i, beta) in enumerate(beta_values)
+            df_beta = df[df[!,:Beta] .== beta, :]        
+            lines!(ax, df_beta.Glucose, df_beta.Production, color = COLORS[types[i]], linewidth=2)
+        end
+
+        f
+
+    end
+
+    save("figures/eccb/production.svg", figure_production, px_per_unit=600/inch)
+
+    model_fit_figure = let fig = Figure(size = (0.25textwidth + 0.1*textwidth, 0.25aspect*textwidth), 
+        fontsize=7pt, fonts = FONTS,
+        backgroundcolor=:transparent)
+        
+        # do the simulations
+        sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
+        sols = [Array(solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
+        
+        ax = Axis(fig[1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", 
+        backgroundcolor=:transparent, xlabelfont=:bold, ylabelfont=:bold, xgridvisible=false, ygridvisible=false)
+        for (i,type) in enumerate(unique(test_data.types))
+
+            type_indices = test_data.types .== type
+
+            c_peptide_data = test_data.cpeptide[type_indices,:]
+
+            sol_idx = findfirst(objectives_test[type_indices] .== median(objectives_test[type_indices]))
+
+            # find the median fit of the type
+            sol_type = sols[type_indices][sol_idx]
+
+            MARKERS = Dict(
+                "NGT" => '●',
+                "IGT" => '▴',
+                "T2DM" => '■'
+            )
+            MARKERSIZES = Dict(
+                "NGT" => 5pt,
+                "IGT" => 9pt,
+                "T2DM" => 5pt
+            )
+
+            lines!(ax, sol_timepoints, sol_type[:,1], color=(COLORS[type], 1), linewidth=1.5, label="Model fit", linestyle=:solid)
+            scatter!(ax, test_data.timepoints, c_peptide_data[sol_idx,:] , color=(COLORS[type], 1), markersize=MARKERSIZES[type], marker=MARKERS[type], label="$type")
+
+        end
+        Legend(fig[1,2], ax, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
+
     fig
+    end
 
+    save("figures/eccb/model_fit.$extension", model_fit_figure, px_per_unit=600/inch)
+
+    correlation_figure = let fig = Figure(size = (0.3textwidth + 0.1*textwidth, 0.25aspect*textwidth), 
+        fontsize=7pt, fonts = FONTS,
+        backgroundcolor=:transparent)
+
+        #betas_train = optsols_train[argmin(objectives_train)].u.ode[:]
+        #betas_test = [optsol.u[1] for optsol in optsols_test]
+
+        correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
+        
+        markers=['●', '▴', '■']
+        MAKERS = Dict(
+            "NGT" => '●',
+            "IGT" => '▴',
+            "T2DM" => '■'
+        )
+        MARKERSIZES = Dict(
+            "NGT" => 5,
+            "IGT" => 9,
+            "T2DM" => 5
+        )
+
+
+        ax_first = Axis(fig[1,1], xlabel="βᵢ", ylabel= "First Phase Clamp", title="ρ = $(round(correlation_first, digits=4))", backgroundcolor=:transparent, xgridvisible=false, ygridvisible=false, xlabelfont=:bold, ylabelfont=:bold)
+
+        scatter!(ax_first, exp.(betas_train), train_data.first_phase, color = (:black, 0.4), markersize=12, label="Train Data", marker='×')
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax_first, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], color=COLORS[type], label="Test $type", marker=MAKERS[type], markersize=MARKERSIZES[type])
+        end
+
+        Legend(fig[1,2], ax_first, orientation=:vertical, merge=true, backgroundcolor=:transparent, framevisible=false, labelfont=:bold, title="C-peptide", titlefont=:bold, titlefontsize=8pt, labelfontsize=8pt)
+        
+        fig
+
+    end
+
+    save("figures/eccb/correlation.$extension", correlation_figure, px_per_unit=600/inch)
 end
-
-save("figures/eccb/correlation.$extension", correlation_figure, px_per_unit=600/inch)

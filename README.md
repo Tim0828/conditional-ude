@@ -11,6 +11,7 @@
 
 - Definieer functies voor metrics;
 - Start data verzamelen huidige setup.
+- Start introductie
 
 ## Week 4
 
@@ -21,10 +22,12 @@
 ## Week 5
 
 - Varieer data door groep te oversamplen;
-- quantificeer effect;
+- kwantificeer effect;
 - Start methode schrijven.
 
 ## Week 6
+
+Max halverwege week op vakantie.
 
 - Voorbereiding presentatie;
 - Varieer prior (varantie van beta);
@@ -32,6 +35,8 @@
 - Vizualiseer data voor presentatie.
 
 ## Week 7
+
+Max op vakantie.
 
 - BEP midway presentation;
 - Feedback verzamelen en laatste weken herzien.
