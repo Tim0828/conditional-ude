@@ -1,12 +1,13 @@
 # Model fit to the train data and evaluation on the test data
-train_model = true
+train_model = false
 extension = "png"
 inch = 96
 pt = 4/3
 cm = inch / 2.54
 linewidth = 13.07245cm
-MANUSCRIPT_FIGURES = true
+MANUSCRIPT_FIGURES = false
 ECCB_FIGURES = false
+tim_figures = true
 FONTS = (
     ; regular = "Fira Sans Light",
     bold = "Fira Sans SemiBold",
@@ -14,7 +15,7 @@ FONTS = (
     bold_italic = "Fira Sans SemiBold Italic",
 )
 
-using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase
+using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing
 
 rng = StableRNG(232705)
 
@@ -95,7 +96,292 @@ function argmedian(x)
     return argmin(abs.(x .- median(x)))
 end
 
+if tim_figures
+    #################### Model fit ####################
 
+    model_fit_figure = let fig
+        fig = Figure(size = (1000, 400))
+        ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
+        
+        # Do the simulations
+        sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
+        sols = [Array(solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
+        
+        axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(test_data.types))]
+
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            c_peptide_data = test_data.cpeptide[type_indices,:]
+            
+            # Find the median fit of the type
+            sol_idx = findfirst(objectives_test[type_indices] .== median(objectives_test[type_indices]))
+            sol_type = sols[type_indices][sol_idx]
+
+            lines!(axs[i], sol_timepoints, sol_type[:,1], color=:blue, linewidth=1.5, label="Model fit")
+            scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:], color=:black, markersize=5, label="Data")
+        end
+
+        # linkyaxes!(axs...)
+        Legend(fig[2,1:3], axs[1], orientation=:horizontal)
+        
+        fig
+    end
+
+    save("figures/c/model_fit.$extension", model_fit_figure, px_per_unit=4)
+
+    #################### Correlation Plots ####################
+
+    ############### Correlation Plots ###############
+
+    correlation_figure = let fig
+        fig = Figure(size = (1000, 400))
+        ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
+        
+        # Calculate correlations
+        correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
+        correlation_age = corspearman([betas_train; betas_test], [train_data.ages; test_data.ages])
+        correlation_isi = corspearman([betas_train; betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
+        
+        # Define markers for different types
+        MARKERS = Dict(
+            "NGT" => '●',
+            "IGT" => '▴',
+            "T2DM" => '■'
+        )
+        
+        MARKERSIZES = Dict(
+            "NGT" => 6,
+            "IGT" => 10,
+            "T2DM" => 6
+        )
+        
+        # First phase correlation
+        ax1 = Axis(ga[1][1,1], xlabel="βᵢ", ylabel="1ˢᵗ Phase Clamp", 
+                   title="ρ = $(round(correlation_first, digits=4))")
+        
+        scatter!(ax1, exp.(betas_train), train_data.first_phase, color=(:black, 0.2), 
+                 markersize=10, label="Train Data", marker='⋆')
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax1, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], 
+                     color=:blue, label="Test $type", marker=MARKERS[type], 
+                     markersize=MARKERSIZES[type])
+        end
+        
+        # Age correlation
+        ax2 = Axis(ga[2][1,1], xlabel="βᵢ", ylabel="Age [y]", 
+                   title="ρ = $(round(correlation_age, digits=4))")
+        
+        scatter!(ax2, exp.(betas_train), train_data.ages, color=(:black, 0.2), 
+                 markersize=10, label="Train", marker='⋆')
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax2, exp.(betas_test[type_indices]), test_data.ages[type_indices], 
+                     color=:blue, label=type, marker=MARKERS[type], 
+                     markersize=MARKERSIZES[type])
+        end
+        
+        # Insulin sensitivity correlation
+        ax3 = Axis(ga[3][1,1], xlabel="βᵢ", ylabel="Ins. Sens. Index", 
+                  title="ρ = $(round(correlation_isi, digits=4))")
+        
+        scatter!(ax3, exp.(betas_train), train_data.insulin_sensitivity, color=(:black, 0.2), 
+                 markersize=10, label="Train", marker='⋆')
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax3, exp.(betas_test[type_indices]), test_data.insulin_sensitivity[type_indices], 
+                     color=:blue, label=type, marker=MARKERS[type], 
+                     markersize=MARKERSIZES[type])
+        end
+        
+        Legend(fig[2,1:3], ax1, orientation=:horizontal)
+        
+        fig
+    end
+
+    save("figures/c/correlations.$extension", correlation_figure, px_per_unit=4)
+
+    # Additional correlations
+    additional_correlation_figure = let fig
+        fig = Figure(size = (1000, 400))
+        ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
+        
+        # Calculate correlations
+        correlation_second = corspearman([betas_train; betas_test], [train_data.second_phase; test_data.second_phase])
+        correlation_bw = corspearman([betas_train; betas_test], [train_data.body_weights; test_data.body_weights])
+        correlation_bmi = corspearman([betas_train; betas_test], [train_data.bmis; test_data.bmis])
+        
+        # Define markers for different types
+        MARKERS = Dict(
+            "NGT" => '●',
+            "IGT" => '▴',
+            "T2DM" => '■'
+        )
+        
+        MARKERSIZES = Dict(
+            "NGT" => 6,
+            "IGT" => 10,
+            "T2DM" => 6
+        )
+        
+        # Second phase correlation
+        ax1 = Axis(ga[1][1,1], xlabel="βᵢ", ylabel="2ⁿᵈ Phase Clamp", 
+                   title="ρ = $(round(correlation_second, digits=4))")
+        
+        scatter!(ax1, exp.(betas_train), train_data.second_phase, color=(:black, 0.2), 
+                 markersize=10, label="Train Data", marker='⋆')
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax1, exp.(betas_test[type_indices]), test_data.second_phase[type_indices], 
+                     color=:blue, label="Test $type", marker=MARKERS[type], 
+                     markersize=MARKERSIZES[type])
+        end
+        
+        # Body weight correlation
+        ax2 = Axis(ga[2][1,1], xlabel="βᵢ", ylabel="Body weight [kg]", 
+                   title="ρ = $(round(correlation_bw, digits=4))")
+        
+        scatter!(ax2, exp.(betas_train), train_data.body_weights, color=(:black, 0.2), 
+                 markersize=10, label="Train", marker='⋆')
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax2, exp.(betas_test[type_indices]), test_data.body_weights[type_indices], 
+                     color=:blue, label=type, marker=MARKERS[type], 
+                     markersize=MARKERSIZES[type])
+        end
+        
+        # BMI correlation
+        ax3 = Axis(ga[3][1,1], xlabel="βᵢ", ylabel="BMI [kg/m²]", 
+                  title="ρ = $(round(correlation_bmi, digits=4))")
+        
+        scatter!(ax3, exp.(betas_train), train_data.bmis, color=(:black, 0.2), 
+                 markersize=10, label="Train", marker='⋆')
+        for (i,type) in enumerate(unique(test_data.types))
+            type_indices = test_data.types .== type
+            scatter!(ax3, exp.(betas_test[type_indices]), test_data.bmis[type_indices], 
+                     color=:blue, label=type, marker=MARKERS[type], 
+                     markersize=MARKERSIZES[type])
+        end
+        
+        Legend(fig[2,1:3], ax1, orientation=:horizontal)
+        
+        fig
+    end
+
+    save("figures/c/additional_correlations.$extension", additional_correlation_figure, px_per_unit=4)
+    
+    # Create residual and QQ plots
+    residual_qq_figure = let fig
+        fig = Figure(size = (1000, 400))
+        ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2])]
+        
+        # Calculate residuals for all test subjects
+        sol_timepoints = test_data.timepoints
+        sols = [solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), 
+                     saveat=sol_timepoints, save_idxs=1) for (i, model) in enumerate(models_test)]
+        
+        # Extract predictions at the measurement timepoints
+        predictions = [sol(sol_timepoints)[1,:] for sol in sols]
+        
+        # Calculate residuals for all subjects and all timepoints
+        all_residuals = []
+        for i in 1:length(models_test)
+            residuals = test_data.cpeptide[i,:] - predictions[i][:]
+            append!(all_residuals, residuals)
+        end
+        
+        # Residual plot
+        ax_res = Axis(ga[1][1,1], 
+                      xlabel="Predicted C-peptide [nmol/L]", 
+                      ylabel="Residuals [nmol/L]",
+                      title="Residual Plot")
+        
+        # Gather all predicted values for plotting
+        all_predictions = []
+        for i in 1:length(models_test)
+            append!(all_predictions, predictions[i][:])
+        end
+        
+        # Scatter plot of residuals vs predicted values
+        scatter!(ax_res, all_predictions, all_residuals, 
+                 color=:blue, markersize=4, alpha=0.6)
+        
+        # Add a horizontal line at y=0
+        hlines!(ax_res, [0], color=:red, linestyle=:dash, linewidth=1.5)
+        
+        # QQ Plot
+        ax_qq = Axis(ga[2][1,1], 
+                    xlabel="Theoretical Quantiles", 
+                    ylabel="Sample Quantiles",
+                    title="Normal Q-Q Plot")
+        
+        # Prepare data for QQ plot
+        sorted_residuals = sort(all_residuals)
+        n = length(sorted_residuals)
+        theoretical_quantiles = [quantile(Normal(), (i - 0.5) / n) for i in 1:n]
+        
+        # Create QQ plot
+        scatter!(ax_qq, theoretical_quantiles, sorted_residuals, 
+                 color=:blue, markersize=4, alpha=0.6)
+        
+        # Add reference line
+        std_residuals = std(all_residuals)
+        mean_residuals = mean(all_residuals)
+        ref_line_x = [minimum(theoretical_quantiles), maximum(theoretical_quantiles)]
+        ref_line_y = [mean_residuals + std_residuals * x for x in ref_line_x]
+        lines!(ax_qq, ref_line_x, ref_line_y, color=:red, linestyle=:dash, linewidth=1.5)
+        
+        fig
+    end
+
+    save("figures/c/residual_qq_plot.$extension", residual_qq_figure, px_per_unit=4)
+
+    # Violin-scatter plot of MSE by group
+    mse_violin_figure = let fig
+        fig = Figure(size = (700, 500))
+        ax = Axis(fig[1,1], 
+                  xticks=([1,2,3], ["NGT", "IGT", "T2DM"]), 
+                  xlabel="Type", 
+                  ylabel="Mean Squared Error",
+                  title="Model Fit Quality by Group")
+        
+        jitter_width = 0.15
+        
+        # For each type
+        for (i, type) in enumerate(unique(test_data.types))
+            # Get the MSE values for this type
+            type_indices = test_data.types .== type
+            type_mse = objectives_test[type_indices]
+            
+            # Create horizontal jitter for the scatter points
+            jitter = (rand(length(type_mse)) .- 0.5) .* jitter_width
+            
+            # Plot the violin on the right side
+            violin!(ax, fill(i, length(type_mse)), type_mse, 
+                    color=(:blue, 0.5), side=:right,
+                    label=type)
+            
+            # Add scatter points with jitter
+            scatter!(ax, fill(i, length(type_mse)) .+ jitter, type_mse,
+                     color=:black, markersize=6, alpha=0.6)
+            
+            # Add a marker for the median
+            scatter!(ax, [i], [median(type_mse)],
+                     color=:red, markersize=10, marker=:diamond)
+        end
+        
+        # Add a legend
+        Legend(fig[1,2], [
+            MarkerElement(color=:black, marker=:circle, markersize=8),
+            MarkerElement(color=:red, marker=:diamond, markersize=10)
+        ], ["Individual MSE", "Group Median"], "Legend")
+        
+        fig
+    end
+
+    save("figures/c/mse_violin.$extension", mse_violin_figure, px_per_unit=4)
+
+end
 
 if MANUSCRIPT_FIGURES
     # model fit figures 
@@ -389,38 +675,38 @@ if MANUSCRIPT_FIGURES
 
     save("figures/supplementary/correlations_other_cude.$extension", additional_correlation_figure, px_per_unit=4)
 
-    # sample data for symbolic regression
-    betas_combined = exp.([betas_train; betas_test])
-    glucose_combined = [train_data.glucose; test_data.glucose]
+    # # sample data for symbolic regression
+    # betas_combined = exp.([betas_train; betas_test])
+    # glucose_combined = [train_data.glucose; test_data.glucose]
 
-    beta_range = LinRange(minimum(betas_combined), maximum(betas_combined)*1.1, 30)
-    glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]) * 3, 100)
+    # beta_range = LinRange(minimum(betas_combined), maximum(betas_combined)*1.1, 30)
+    # glucose_range = LinRange(0.0, maximum(glucose_combined .- glucose_combined[:,1]) * 3, 100)
 
-    colnames = ["Beta", "Glucose", "Production"]
-    data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
-    data = hcat(reshape(data, 100*30)...)
+    # colnames = ["Beta", "Glucose", "Production"]
+    # data = [ [β, glucose, chain([glucose, β], neural_network_parameters)[1] - chain([0.0, β], neural_network_parameters)[1]] for β in beta_range, glucose in glucose_range]
+    # data = hcat(reshape(data, 100*30)...)
 
-    df = DataFrame(data', colnames)
-
-
-    figure_production = let f = Figure(size=(800,600))
+    # df = DataFrame(data', colnames)
 
 
-        ga = GridLayout(f[1,1])
-        gb = GridLayout(f[1,2])
-        #df = DataFrame(CSV.File("data/ohashi_production.csv"))
-        beta_values = df[1:30, :Beta]
+    # figure_production = let f = Figure(size=(800,600))
+
+
+    #     ga = GridLayout(f[1,1])
+    #     gb = GridLayout(f[1,2])
+    #     #df = DataFrame(CSV.File("data/ohashi_production.csv"))
+    #     beta_values = df[1:30, :Beta]
         
-        ax = Axis(ga[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", title="Neural Network")
-        for (i, beta) in enumerate(beta_values)
-            df_beta = df[df[!,:Beta] .== beta, :]        
-            lines!(ax, df_beta.Glucose, df_beta.Production, color = i, colorrange=(1,30), colormap=:viridis)
-        end
+    #     ax = Axis(ga[1,1], xlabel="ΔG (mM)", ylabel="Production (nM min⁻¹)", title="Neural Network")
+    #     for (i, beta) in enumerate(beta_values)
+    #         df_beta = df[df[!,:Beta] .== beta, :]        
+    #         lines!(ax, df_beta.Glucose, df_beta.Production, color = i, colorrange=(1,30), colormap=:viridis)
+    #     end
 
-        Colorbar(f[1,2], limits=(beta_values[1], beta_values[end]), label="β")    
-        f
+    #     Colorbar(f[1,2], limits=(beta_values[1], beta_values[end]), label="β")    
+    #     f
 
-    end
+    # end
 
     #CSV.write("data/ohashi_production.csv", df)
 end
