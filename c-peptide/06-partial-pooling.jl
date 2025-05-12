@@ -16,7 +16,6 @@ FONTS = (
 # using Flux
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
-setprogress!(true)
 rng = StableRNG(232705)
 
 include("src/c-peptide-ude-models.jl")
@@ -361,7 +360,7 @@ if tim_figures
                   title="Model Fit Quality by Group")
         
         jitter_width = 0.1
-        offset = -0.6
+        offset = -0.1
         mse_values_violin = filter(!isinf, objectives_current_train) # Use pre-calculated MSEs, filter Infs
 
         plot_elements = [] # For legend
@@ -374,7 +373,7 @@ if tim_figures
             
             if !isempty(type_mse_filtered)
                 # Create horizontal jitter for the scatter points
-                jitter = offset + (rand(StableRNG(k), length(type_mse_filtered)) .- 0.5) .* jitter_width
+                jitter = offset .+ (rand(StableRNG(k), length(type_mse_filtered)) .- 0.5) .* jitter_width
                 
                 violin!(ax, fill(k, length(type_mse_filtered)), type_mse_filtered, 
                         color=(Makie.wong_colors()[k], 0.5), side=:right)

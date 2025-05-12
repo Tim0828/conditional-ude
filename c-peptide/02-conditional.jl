@@ -355,7 +355,7 @@ if tim_figures
                   title="Model Fit Quality by Group")
         
         jitter_width = 0.1
-        offset = -0.2
+        offset = -0.1
         
         # For each type
         for (i, type) in enumerate(unique(test_data.types))
@@ -364,7 +364,7 @@ if tim_figures
             type_mse = objectives_test[type_indices]
             
             # Create horizontal jitter for the scatter points
-            jitter = offset + (rand(length(type_mse)) .- 0.5) .* jitter_width
+            jitter = offset .+ (rand(length(type_mse)) .- 0.5) .* jitter_width
             
             # Plot the violin on the right side
             violin!(ax, fill(i, length(type_mse)), type_mse, 
