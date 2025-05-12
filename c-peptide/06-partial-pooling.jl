@@ -1,4 +1,4 @@
-train_model = true
+train_model = false
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -92,11 +92,11 @@ turing_model = partial_pooled(train_data.cpeptide[indices_train,:], train_data.t
 if train_model
     # Train the model
     if quick_train
-        # Use a smaller number of iterations for quick training
+        # Smaller number of iterations for testing
         advi_iterations = 1
     else
-        # Use a larger number of iterations for full training
-        advi_iterations = 1000
+        # Larger number of iterations for full training
+        advi_iterations = 4000 #~11 min
     end
     advi = ADVI(1, advi_iterations)
     advi_model = vi(turing_model, advi)
@@ -167,7 +167,7 @@ if tim_figures
         "T2DM" => 6
     )
 
-    #################### Model fit (adapted from 02-conditional.jl) ####################
+    #################### Model fit  ####################
     model_fit_figure = let fig
         fig = Figure(size = (1000, 400))
         unique_types_in_current_train = unique(current_train_types)
@@ -224,7 +224,7 @@ if tim_figures
     save("figures/pp/model_fit.$extension", model_fit_figure, px_per_unit=4)
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
-    exp_betas = exp.(betas) # Assuming betas are log-transformed as in some contexts
+    exp_betas = exp.(betas) 
 
     correlation_figure = let fig
         fig = Figure(size = (1000, 400))
@@ -358,9 +358,10 @@ if tim_figures
                   xticks= (1:length(unique_types_violin), string.(unique_types_violin)), 
                   xlabel="Type", 
                   ylabel="Mean Squared Error",
-                  title="Model Fit Quality by Group (Training Subset)")
+                  title="Model Fit Quality by Group")
         
-        jitter_width = 0.15
+        jitter_width = 0.1
+        offset = -0.6
         mse_values_violin = filter(!isinf, objectives_current_train) # Use pre-calculated MSEs, filter Infs
 
         plot_elements = [] # For legend
@@ -373,12 +374,12 @@ if tim_figures
             
             if !isempty(type_mse_filtered)
                 # Create horizontal jitter for the scatter points
-                jitter = (rand(StableRNG(k), length(type_mse_filtered)) .- 0.5) .* jitter_width
+                jitter = offset + (rand(StableRNG(k), length(type_mse_filtered)) .- 0.5) .* jitter_width
                 
                 violin!(ax, fill(k, length(type_mse_filtered)), type_mse_filtered, 
                         color=(Makie.wong_colors()[k], 0.5), side=:right)
                 
-                scatter!(ax, fill(k, length(type_mse_filtered)) .+ jitter, type_mse_filtered,
+                scatter!(ax, fill(k, length(type_mse_filtered)) .+ jitter , type_mse_filtered,
                          color=:black, markersize=6, alpha=0.6)
                 
                 # Add a marker for the median
@@ -420,68 +421,5 @@ end
 #     f
 # end
 # save("figures/pp/advi_elbo_history.$extension", figure_elbo_history)
-
-
-#################### Model fit ####################
-
-figure_model_fit = let f = Figure()
-    subject = 1 # subject to plot
-    ax = Vector{Axis}(undef, 2)
-    ax[1] = Axis(f[1, 1], title = "Model fit", xlabel = "Timepoints", ylabel = "C-peptide")
-    ax[2] = Axis(f[1, 2], title = "Average Model fit", xlabel = "Timepoints", ylabel = "C-peptide")
-    # sample parameters
-    samples = rand(advi_model, 1000)
-    # take the mean of the samples
-    mean_samples = mean(samples, dims=2)[:]
-
-    
-    for params in eachcol(mean_samples)
-        nn_params = params[union(sym2range[:nn]...)]
-        betas = params[union(sym2range[:β]...)]
-
-        prediction = predict(betas[subject], nn_params, models_train[indices_train[subject]].problem, train_data.timepoints)
-        lines!(ax[1], train_data.timepoints, prediction, color = Makie.wong_colors()[1], alpha = 0.01)
-    end
-    
-    scatter!(ax[1], train_data.timepoints, train_data.cpeptide[indices_train[subject],:], color = "black", markersize = 10)
-
-    # Calculate the average nn_params and beta for the current subject
-    avg_nn_params = mean(samples[union(sym2range[:nn]...), :], dims=2)[:]
-    avg_beta = mean(samples[union(sym2range[:β]...), :], dims=2)[subject]
-
-    # Generate prediction with average parameters
-    prediction = predict(avg_beta, avg_nn_params, models_train[indices_train[subject]].problem, train_data.timepoints)
-
-    # Plot only the average line
-    lines!(ax[2], train_data.timepoints, prediction, color=Makie.wong_colors()[1], linewidth=2)
-    # Plot the individual data points
-    scatter!(ax[2], train_data.timepoints, train_data.cpeptide[indices_train[subject],:], color = "black", markersize = 10)
-    f
-    save("figures/pp/model_fit.$extension", f)
-end
-
-
-# z = rand(advi_model, 1000)
-
-# sampled_params = z[union(sym2range[:β]...),:] # sampled parameters
-# avgs = mean(sampled_params, dims=2)[:]
-
-#################### Correlation Plots ####################
-
-figure_avgs = let f = Figure(size = (3*linewidth, 9*pt*cm))
-    ax = Vector{Axis}(undef, 3)
-    ax[1] = Axis(f[1, 1], title="Correlation one", xlabel="Body weight [kg]", ylabel="β")
-    scatter!(ax[1], train_data.body_weights[indices_train], exp.(betas), color = "black", markersize = 10)
-    ax[2] = Axis(f[1, 2], title="Correlation two", xlabel="BMI [kg/m²]", ylabel="β")
-    scatter!(ax[2], train_data.bmis[indices_train], exp.(betas), color = "black", markersize = 10)
-    ax[3] = Axis(f[1, 3], title = "Correlation three", xlabel = "Clamp DI", ylabel = "β")
-    scatter!(ax[3], train_data.disposition_indices[indices_train], exp.(betas), color="black", markersize=10)    
-    f
-    save("figures/pp/beta_corr.$extension", f) 
-end
-
-
-###################### Model fit residual Plots ######################
-
 
 end

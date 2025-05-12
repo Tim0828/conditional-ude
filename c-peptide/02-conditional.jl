@@ -129,18 +129,23 @@ if tim_figures
 
     save("figures/c/model_fit.$extension", model_fit_figure, px_per_unit=4)
 
-    #################### Correlation Plots ####################
 
     ############### Correlation Plots ###############
+    exp_betas_train = exp.(betas_train)
+    exp_betas_test = exp.(betas_test)
 
     correlation_figure = let fig
         fig = Figure(size = (1000, 400))
         ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
         
         # Calculate correlations
-        correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
-        correlation_age = corspearman([betas_train; betas_test], [train_data.ages; test_data.ages])
-        correlation_isi = corspearman([betas_train; betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
+        # correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
+        # correlation_age = corspearman([betas_train; betas_test], [train_data.ages; test_data.ages])
+        # correlation_isi = corspearman([betas_train; betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
+
+        correlation_first = corspearman([exp_betas_train; exp_betas_test], [train_data.first_phase; test_data.first_phase])
+        correlation_age = corspearman([exp_betas_train; exp_betas_test], [train_data.ages; test_data.ages])
+        correlation_isi = corspearman([exp_betas_train; exp_betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
         
         # Define markers for different types
         MARKERS = Dict(
@@ -156,40 +161,40 @@ if tim_figures
         )
         
         # First phase correlation
-        ax1 = Axis(ga[1][1,1], xlabel="βᵢ", ylabel="1ˢᵗ Phase Clamp", 
+        ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="1ˢᵗ Phase Clamp", 
                    title="ρ = $(round(correlation_first, digits=4))")
         
-        scatter!(ax1, exp.(betas_train), train_data.first_phase, color=(:black, 0.2), 
+        scatter!(ax1, exp_betas_train, train_data.first_phase, color=(:black, 0.2), 
                  markersize=10, label="Train Data", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
-            scatter!(ax1, exp.(betas_test[type_indices]), test_data.first_phase[type_indices], 
+            scatter!(ax1, exp_betas_test[type_indices], test_data.first_phase[type_indices], 
                      color=:blue, label="Test $type", marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
         # Age correlation
-        ax2 = Axis(ga[2][1,1], xlabel="βᵢ", ylabel="Age [y]", 
+        ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Age [y]", 
                    title="ρ = $(round(correlation_age, digits=4))")
         
-        scatter!(ax2, exp.(betas_train), train_data.ages, color=(:black, 0.2), 
+        scatter!(ax2, exp_betas_train, train_data.ages, color=(:black, 0.2), 
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
-            scatter!(ax2, exp.(betas_test[type_indices]), test_data.ages[type_indices], 
+            scatter!(ax2, exp_betas_test[type_indices], test_data.ages[type_indices], 
                      color=:blue, label=type, marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
         # Insulin sensitivity correlation
-        ax3 = Axis(ga[3][1,1], xlabel="βᵢ", ylabel="Ins. Sens. Index", 
+        ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="Ins. Sens. Index", 
                   title="ρ = $(round(correlation_isi, digits=4))")
         
-        scatter!(ax3, exp.(betas_train), train_data.insulin_sensitivity, color=(:black, 0.2), 
+        scatter!(ax3, exp_betas_train, train_data.insulin_sensitivity, color=(:black, 0.2), 
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
-            scatter!(ax3, exp.(betas_test[type_indices]), test_data.insulin_sensitivity[type_indices], 
+            scatter!(ax3, exp_betas_test[type_indices], test_data.insulin_sensitivity[type_indices], 
                      color=:blue, label=type, marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
@@ -207,9 +212,13 @@ if tim_figures
         ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
         
         # Calculate correlations
-        correlation_second = corspearman([betas_train; betas_test], [train_data.second_phase; test_data.second_phase])
-        correlation_bw = corspearman([betas_train; betas_test], [train_data.body_weights; test_data.body_weights])
-        correlation_bmi = corspearman([betas_train; betas_test], [train_data.bmis; test_data.bmis])
+        # correlation_second = corspearman([betas_train; betas_test], [train_data.second_phase; test_data.second_phase])
+        # correlation_bw = corspearman([betas_train; betas_test], [train_data.body_weights; test_data.body_weights])
+        # correlation_bmi = corspearman([betas_train; betas_test], [train_data.bmis; test_data.bmis])
+
+        correlation_second = corspearman([exp_betas_train; exp_betas_test], [train_data.second_phase; test_data.second_phase])
+        correlation_bw = corspearman([exp_betas_train; exp_betas_test], [train_data.body_weights; test_data.body_weights])
+        correlation_bmi = corspearman([exp_betas_train; exp_betas_test], [train_data.bmis; test_data.bmis])
         
         # Define markers for different types
         MARKERS = Dict(
@@ -225,40 +234,40 @@ if tim_figures
         )
         
         # Second phase correlation
-        ax1 = Axis(ga[1][1,1], xlabel="βᵢ", ylabel="2ⁿᵈ Phase Clamp", 
+        ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="2ⁿᵈ Phase Clamp", 
                    title="ρ = $(round(correlation_second, digits=4))")
         
-        scatter!(ax1, exp.(betas_train), train_data.second_phase, color=(:black, 0.2), 
+        scatter!(ax1, exp_betas_train, train_data.second_phase, color=(:black, 0.2), 
                  markersize=10, label="Train Data", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
-            scatter!(ax1, exp.(betas_test[type_indices]), test_data.second_phase[type_indices], 
+            scatter!(ax1, exp_betas_test[type_indices], test_data.second_phase[type_indices], 
                      color=:blue, label="Test $type", marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
         # Body weight correlation
-        ax2 = Axis(ga[2][1,1], xlabel="βᵢ", ylabel="Body weight [kg]", 
+        ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Body weight [kg]", 
                    title="ρ = $(round(correlation_bw, digits=4))")
         
-        scatter!(ax2, exp.(betas_train), train_data.body_weights, color=(:black, 0.2), 
+        scatter!(ax2, exp_betas_train, train_data.body_weights, color=(:black, 0.2), 
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
-            scatter!(ax2, exp.(betas_test[type_indices]), test_data.body_weights[type_indices], 
+            scatter!(ax2, exp_betas_test[type_indices], test_data.body_weights[type_indices], 
                      color=:blue, label=type, marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
         # BMI correlation
-        ax3 = Axis(ga[3][1,1], xlabel="βᵢ", ylabel="BMI [kg/m²]", 
+        ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="BMI [kg/m²]", 
                   title="ρ = $(round(correlation_bmi, digits=4))")
         
-        scatter!(ax3, exp.(betas_train), train_data.bmis, color=(:black, 0.2), 
+        scatter!(ax3, exp_betas_train, train_data.bmis, color=(:black, 0.2), 
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
-            scatter!(ax3, exp.(betas_test[type_indices]), test_data.bmis[type_indices], 
+            scatter!(ax3, exp_betas_test[type_indices], test_data.bmis[type_indices], 
                      color=:blue, label=type, marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
@@ -345,7 +354,8 @@ if tim_figures
                   ylabel="Mean Squared Error",
                   title="Model Fit Quality by Group")
         
-        jitter_width = 0.15
+        jitter_width = 0.1
+        offset = -0.2
         
         # For each type
         for (i, type) in enumerate(unique(test_data.types))
@@ -354,7 +364,7 @@ if tim_figures
             type_mse = objectives_test[type_indices]
             
             # Create horizontal jitter for the scatter points
-            jitter = (rand(length(type_mse)) .- 0.5) .* jitter_width
+            jitter = offset + (rand(length(type_mse)) .- 0.5) .* jitter_width
             
             # Plot the violin on the right side
             violin!(ax, fill(i, length(type_mse)), type_mse, 
