@@ -1,4 +1,4 @@
-train_model = false
+train_model = true
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -56,7 +56,7 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
-    μ_beta ~ Normal(1.0, 10.0)
+    μ_beta ~ Normal(0.7, 1.0) # more informative prior
     σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters
@@ -95,7 +95,7 @@ if train_model
         advi_iterations = 1
     else
         # Larger number of iterations for full training
-        advi_iterations = 4000 #~11 min
+        advi_iterations = 2000 
     end
     advi = ADVI(1, advi_iterations)
     advi_model = vi(turing_model, advi)
