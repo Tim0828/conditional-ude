@@ -446,6 +446,112 @@ if tim_figures
         fig
     end
     save("figures/pp/mse_violin.$extension", mse_violin_figure, px_per_unit=4)
+
+    #################### All Model Fits ####################
+    all_model_fits_figure = let fig
+        # Create a large figure with a grid layout for all subjects
+        n_subjects = length(current_betas[:,1])
+        n_cols = 4  # Adjust number of columns as needed
+        n_rows = ceil(Int, n_subjects / n_cols)
+        
+        fig = Figure(size = (200 * n_cols, 150 * n_rows))
+        
+        sol_timepoints = current_timepoints[1]:0.1:current_timepoints[end]
+        
+        for i in 1:n_subjects
+            ax = Axis(fig[div(i-1, n_cols) + 1, mod1(i, n_cols)], 
+                     xlabel="Time [min]", 
+                     ylabel="C-peptide [nmol/L]", 
+                     title="Subject $(i) ($(current_types[i]))")
+            
+            # Plot the model prediction
+            sol = Array(solve(current_models_subset[i].problem, 
+                           p=ComponentArray(ode=[current_betas[i]], neural=nn_params), 
+                           saveat=sol_timepoints, save_idxs=1))
+            
+            lines!(ax, sol_timepoints, sol[:,1], color=:blue, linewidth=1.5, label="Model fit")
+            
+            # Plot the observed data
+            scatter!(ax, current_timepoints, current_cpeptide[i,:], 
+                     color=:black, markersize=5, marker=MARKERS[current_types[i]], label="Data")
+            
+            # Add MSE to the title
+            mse = calculate_mse(current_cpeptide[i,:], predict(current_betas[i], nn_params, current_models_subset[i].problem, current_timepoints))
+            ax.title = "$(current_types[i]) #$(i) (MSE: $(round(mse, digits=3)))"
+        end
+        
+        # Add a legend
+        # Legend(fig[n_rows+1, 1:n_cols], ["Model fit", "Data"], ["blue", "black"], orientation=:horizontal)
+        
+        fig
+    end
+    save("figures/pp/all_model_fits.$extension", all_model_fits_figure, px_per_unit=2)
+
+    #################### Correlation Between Error and Physiological Metrics ####################
+    error_correlation_figure = let fig
+        fig = Figure(size = (1200, 800))
+        
+        # Calculate MSE for each subject (already done in objectives_current)
+        errors = objectives_current
+        
+        # Physiological metrics
+        metrics = [
+            test_data.first_phase,
+            test_data.second_phase,
+            test_data.ages,
+            test_data.insulin_sensitivity,
+            test_data.body_weights,
+            test_data.bmis
+        ]
+        
+        metric_names = [
+            "1ˢᵗ Phase Clamp",
+            "2ⁿᵈ Phase Clamp",
+            "Age [y]",
+            "Ins. Sens. Index",
+            "Body weight [kg]",
+            "BMI [kg/m²]"
+        ]
+        
+        # Create a 2x3 grid of plots
+        for i in 1:6
+            row = div(i-1, 3) + 1
+            col = mod1(i, 3)
+            
+            # Filter out Inf errors
+            valid_indices = .!isinf.(errors)
+            if !any(valid_indices)
+                continue
+            end
+            
+            # Calculate correlation
+            correlation = corspearman(errors[valid_indices], metrics[i][valid_indices])
+            
+            ax = Axis(fig[row, col], 
+                        xlabel=metric_names[i],
+                        ylabel="Mean Squared Error",
+                        title="ρ = $(round(correlation, digits=4))")
+            
+            # Plot by type
+            for (j, type_val) in enumerate(unique(current_types))
+                type_mask = (current_types .== type_val) .& valid_indices
+                if any(type_mask)
+                        scatter!(ax, metrics[i][type_mask], errors[type_mask],
+                            color=Makie.wong_colors()[j], 
+                            label=type_val, 
+                            marker=MARKERS[type_val], 
+                            markersize=MARKERSIZES[type_val])
+                end
+            end
+        end
+        
+        # Add legend
+        # Legend(fig[3, 1:3], "Type", orientation=:horizontal)
+        
+        fig
+    end
+    save("figures/pp/error_correlations.$extension", error_correlation_figure, px_per_unit=4)
+
 end
 
 # #################### ADVI Objective (ELBO) Plot ####################
