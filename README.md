@@ -15,9 +15,18 @@
 
 ## Week 4
 
-- Implementeer no-pooling;
+- Implementeer no-pooling (eerst als LogDensity met AdvancedVI);
 - verzamel data;
 - vergelijk met week 3.
+
+### Meeting notes 14 mei (review week 3)
+
+- MLE 25 starting points, ADVI 1
+- vergelijking pakt median individual obv error, vergelijk dezelfde individuen
+- Is de error hoger voor de uitersten van de physio metrics (plot corr)
+- posterior plotten
+- verschillende initializations ADVI 
+define logdensity problem
 
 ## Week 5
 

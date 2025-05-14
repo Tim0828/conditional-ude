@@ -1,4 +1,4 @@
-train_model = true
+train_model = false
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -38,6 +38,7 @@ init_params(models_train[1].chain)
 # # train on 70%, select on 30%
 indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
 
+
 # Optimizable function: neural network parameters, contains
 #   RxInfer model: C-peptide model with partial pooling and known neural network parameters
 #   RxInfer inference of the individual conditional parameters and population parameters
@@ -56,7 +57,7 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
-    μ_beta ~ Normal(0.7, 1.0) # more informative prior
+    μ_beta ~ Normal(1.0, 10.0)
     σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters
@@ -93,11 +94,13 @@ if train_model
     if quick_train
         # Smaller number of iterations for testing
         advi_iterations = 1
+        advi_test_iterations = 1
     else
         # Larger number of iterations for full training
         advi_iterations = 2000 
+        advi_test_iterations = 500
     end
-    advi = ADVI(1, advi_iterations)
+    advi = ADVI(4, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true));
 
@@ -107,24 +110,54 @@ if train_model
     sampled_betas = z[union(sym2range[:β]...),:] # sampled parameters
     betas = mean(sampled_betas, dims=2)[:]
 
-    # save sampled parameters
-    save("figures/pp/sampled_parameters.jld2", "sampled_nn_params", sampled_nn_params, "sampled_betas", sampled_betas)
+    # create the models for the test data
+    models_test = [
+        CPeptideCUDEModel(test_data.glucose[i,:], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i,:], t2dm[i]) for i in axes(test_data.glucose, 1)
+    ]
+
+    # fixed parameters for the test data
+    turing_model_test = partial_pooled(test_data.cpeptide, test_data.timepoints, models_test, nn_params);
+
+    # train conditional model
+    advi_test = ADVI(4, advi_test_iterations)
+    advi_model_test = vi(turing_model_test, advi_test)
+    _, sym2range_test = bijector(turing_model_test, Val(true));
+    z_test = rand(advi_model_test, 10_000)
+    sampled_betas_test = z_test[union(sym2range_test[:β]...),:] # sampled parameters
+    betas_test = mean(sampled_betas_test, dims=2)[:]
+
     # save the model
-    save("figures/pp/advi_model.jld2", "advi_model", advi_model)
+    save("figures/partial_pooling/advi_model.jld2", "advi_model", advi_model)
+    save("figures/partial_pooling/advi_model_test.jld2", "advi_model_test", advi_model_test)
+    save("figures/partial_pooling/nn_params.jld2", "nn_params", nn_params)
+    save("figures/partial_pooling/betas.jld2", "betas", betas)
+    save("figures/partial_pooling/betas_test.jld2", "betas_test", betas_test)
+
+    predictions = [
+        predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i, idx) in enumerate(indices_train)
+    ]
+
+    indices_test = 1:length(models_test)
+
+    predictions_test = [
+        predict(betas_test[i], nn_params, models_test[idx].problem, test_data.timepoints) for (i, idx) in enumerate(indices_test)
+    ]
+    # Save the predictions
+    save("figures/partial_pooling/predictions.jld2", "predictions", predictions)
+    save("figures/partial_pooling/predictions_test.jld2", "predictions_test", predictions_test)
+
 else
     # Load the model
-    advi_model = load("figures/pp/advi_model.jld2", "advi_model")
-    sampled_params = load("figures/pp/sampled_parameters.jld2")
-    sampled_nn_params = sampled_params["sampled_nn_params"]
-    sampled_betas = sampled_params["sampled_betas"]
-    nn_params = mean(sampled_nn_params, dims=2)[:]
-    betas = mean(sampled_betas, dims=2)[:]
-    _, sym2range = bijector(turing_model, Val(true));
+    advi_model = JLD2.load("figures/partial_pooling/advi_model.jld2", "advi_model")
+    advi_model_test = JLD2.load("figures/partial_pooling/advi_model_test.jld2", "advi_model_test")
+    nn_params = JLD2.load("figures/partial_pooling/nn_params.jld2", "nn_params")
+    betas = JLD2.load("figures/partial_pooling/betas.jld2", "betas")
+    betas_test = JLD2.load("figures/partial_pooling/betas_test.jld2", "betas_test")
+
+    predictions = JLD2.load("figures/partial_pooling/predictions.jld2", "predictions")
+    predictions_test = JLD2.load("figures/partial_pooling/predictions_test.jld2", "predictions_test")
 end
 
-predictions = [
-    predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i,idx) in enumerate(indices_train)
-]
 
 ######################### Plotting #########################
 if tim_figures
@@ -138,19 +171,28 @@ if tim_figures
     end
 
     # Use the mean parameters from ADVI (nn_params, betas are already defined)
-    # Data specific to the training subset used for the ADVI model
-    current_train_cpeptide = train_data.cpeptide[indices_train,:]
-    current_train_types = train_data.types[indices_train]
-    current_models_train_subset = models_train[indices_train] # Renamed to avoid conflict if models_train is used differently below
-    current_timepoints = train_data.timepoints
+    # # Data specific to the training subset used for the ADVI model
+    # current_train_cpeptide = train_data.cpeptide[indices_train,:]
+    # current_train_types = train_data.types[indices_train]
+    # current_models_train_subset = models_train[indices_train] # Renamed to avoid conflict if models_train is used differently below
+    # current_timepoints = train_data.timepoints
+
+    # Using test data
+    current_cpeptide = test_data.cpeptide
+    current_types = test_data.types
+    current_models_subset = models_test
+    current_timepoints = test_data.timepoints
+    current_betas = betas_test
+    n_subjects = length(current_betas[:,1])
+    indices_test = 1:n_subjects
     
     # Calculate objectives (MSE) for the training subjects using mean parameters
-    objectives_current_train = [
+    objectives_current = [
         calculate_mse(
-            current_train_cpeptide[i,:], 
-            predict(betas[i], nn_params, current_models_train_subset[i].problem, current_timepoints)
+            current_cpeptide[i,:], 
+            predict(current_betas[i], nn_params, current_models_subset[i].problem, current_timepoints)
         ) 
-        for i in 1:length(indices_train)
+        for i in 1:n_subjects
     ]
 
     # Define markers for different types, as used in 02-conditional.jl
@@ -169,24 +211,24 @@ if tim_figures
     #################### Model fit  ####################
     model_fit_figure = let fig
         fig = Figure(size = (1000, 400))
-        unique_types_in_current_train = unique(current_train_types)
-        ga = [GridLayout(fig[1,i]) for i in 1:length(unique_types_in_current_train)]
+        unique_types = unique(current_types)
+        ga = [GridLayout(fig[1,i]) for i in 1:length(unique_types)]
                 
         sol_timepoints = current_timepoints[1]:0.1:current_timepoints[end]
         
         # Pre-calculate all solutions for the current training subset
-        sols_current_train = [
-            Array(solve(current_models_train_subset[i].problem, p=ComponentArray(ode=[betas[i]], neural=nn_params), saveat=sol_timepoints, save_idxs=1)) 
-            for i in 1:length(indices_train)
+        sols_current = [
+            Array(solve(current_models_subset[i].problem, p=ComponentArray(ode=[current_betas[i]], neural=nn_params), saveat=sol_timepoints, save_idxs=1)) 
+            for i in 1:n_subjects
         ]
         
-        axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique_types_in_current_train)]
+        axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique_types)]
 
-        for (i,type) in enumerate(unique_types_in_current_train)
-            type_indices_local = findall(tt -> tt == type, current_train_types) # Indices within the current_train_types/betas/sols_current_train
+        for (i,type) in enumerate(unique_types)
+            type_indices_local = findall(tt -> tt == type, current_types) # Indices within the current_train_types/betas/sols_current_train
             
-            c_peptide_data_type = current_train_cpeptide[type_indices_local,:]
-            objectives_type = objectives_current_train[type_indices_local]
+            c_peptide_data_type = current_cpeptide[type_indices_local,:]
+            objectives_type = objectives_current[type_indices_local]
             
             # Filter out Inf MSEs before finding median
             valid_objectives_type = filter(!isinf, objectives_type)
@@ -207,12 +249,12 @@ if tim_figures
                  end
             end
 
-            original_subject_idx = type_indices_local[sol_idx_in_type_indices] # This is the index in sols_current_train and current_train_cpeptide
+            original_subject_idx = type_indices_local[sol_idx_in_type_indices] 
 
-            sol_to_plot = sols_current_train[original_subject_idx]
+            sol_to_plot = sols_current[original_subject_idx]
 
             lines!(axs[i], sol_timepoints, sol_to_plot[:,1], color=:blue, linewidth=1.5, label="Model fit")
-            scatter!(axs[i], current_timepoints, current_train_cpeptide[original_subject_idx,:], color=:black, markersize=5, label="Data")
+            scatter!(axs[i], current_timepoints, current_cpeptide[original_subject_idx,:], color=:black, markersize=5, label="Data")
         end
 
         if length(axs) > 0
@@ -223,37 +265,37 @@ if tim_figures
     save("figures/pp/model_fit.$extension", model_fit_figure, px_per_unit=4)
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
-    exp_betas = exp.(betas) 
+    exp_betas = exp.(current_betas) 
 
     correlation_figure = let fig
         fig = Figure(size = (1000, 400))
         ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
         
-        data_first_phase = train_data.first_phase[indices_train]
-        data_ages = train_data.ages[indices_train]
-        data_isi = train_data.insulin_sensitivity[indices_train]
+        data_first_phase = test_data.first_phase
+        data_ages = test_data.ages
+        data_isi = test_data.insulin_sensitivity
 
         correlation_first = corspearman(exp_betas, data_first_phase)
         correlation_age = corspearman(exp_betas, data_ages)
         correlation_isi = corspearman(exp_betas, data_isi)
         
         ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="1ˢᵗ Phase Clamp", title="ρ = $(round(correlation_first, digits=4))")
-        for (j, type_val) in enumerate(unique(current_train_types))
-            type_mask = current_train_types .== type_val
+        for (j, type_val) in enumerate(unique(current_types))
+            type_mask = current_types .== type_val
             scatter!(ax1, exp_betas[type_mask], data_first_phase[type_mask], 
                      color=Makie.wong_colors()[j], label=type_val, marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
         end
         
         ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Age [y]", title="ρ = $(round(correlation_age, digits=4))")
-        for (j, type_val) in enumerate(unique(current_train_types))
-            type_mask = current_train_types .== type_val
+        for (j, type_val) in enumerate(unique(current_types))
+            type_mask = current_types .== type_val
             scatter!(ax2, exp_betas[type_mask], data_ages[type_mask], 
                      color=Makie.wong_colors()[j], label=type_val, marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
         end
         
         ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="Ins. Sens. Index", title="ρ = $(round(correlation_isi, digits=4))")
-        for (j, type_val) in enumerate(unique(current_train_types))
-            type_mask = current_train_types .== type_val
+        for (j, type_val) in enumerate(unique(current_types))
+            type_mask = current_types .== type_val
             scatter!(ax3, exp_betas[type_mask], data_isi[type_mask], 
                      color=Makie.wong_colors()[j], label=type_val, marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
         end
@@ -268,31 +310,31 @@ if tim_figures
         fig = Figure(size = (1000, 400))
         ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
 
-        data_second_phase = train_data.second_phase[indices_train]
-        data_bw = train_data.body_weights[indices_train]
-        data_bmi = train_data.bmis[indices_train]
+        data_second_phase = test_data.second_phase
+        data_bw = test_data.body_weights
+        data_bmi = test_data.bmis
         
         correlation_second = corspearman(exp_betas, data_second_phase)
         correlation_bw = corspearman(exp_betas, data_bw)
         correlation_bmi = corspearman(exp_betas, data_bmi)
         
         ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="2ⁿᵈ Phase Clamp", title="ρ = $(round(correlation_second, digits=4))")
-        for (j, type_val) in enumerate(unique(current_train_types))
-            type_mask = current_train_types .== type_val
+        for (j, type_val) in enumerate(unique(current_types))
+            type_mask = current_types .== type_val
             scatter!(ax1, exp_betas[type_mask], data_second_phase[type_mask], 
                      color=Makie.wong_colors()[j], label=type_val, marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
         end
         
         ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Body weight [kg]", title="ρ = $(round(correlation_bw, digits=4))")
-        for (j, type_val) in enumerate(unique(current_train_types))
-            type_mask = current_train_types .== type_val
+        for (j, type_val) in enumerate(unique(current_types))
+            type_mask = current_types .== type_val
             scatter!(ax2, exp_betas[type_mask], data_bw[type_mask], 
                      color=Makie.wong_colors()[j], label=type_val, marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
         end
         
         ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="BMI [kg/m²]", title="ρ = $(round(correlation_bmi, digits=4))")
-        for (j, type_val) in enumerate(unique(current_train_types))
-            type_mask = current_train_types .== type_val
+        for (j, type_val) in enumerate(unique(current_types))
+            type_mask = current_types .== type_val
             scatter!(ax3, exp_betas[type_mask], data_bmi[type_mask], 
                      color=Makie.wong_colors()[j], label=type_val, marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
         end
@@ -313,13 +355,13 @@ if tim_figures
         all_residuals = Float64[]
 
         # Get average parameters
-        z = rand(advi_model, 1000)
-        avg_nn_params = mean(z[union(sym2range[:nn]...), :], dims=2)[:]
-        avg_betas = mean(z[union(sym2range[:β]...), :], dims=2)[:]
+        # z = rand(advi_model, 1000)
+        # avg_nn_params = mean(z[union(sym2range[:nn]...), :], dims=2)[:]
+        # avg_betas = mean(z[union(sym2range[:β]...), :], dims=2)[:]
 
-        for (i, idx) in enumerate(indices_train)
-            prediction = predict(avg_betas[i], avg_nn_params, models_train[idx].problem, train_data.timepoints)
-            observed = train_data.cpeptide[idx, :]
+        for (i, idx) in enumerate(1:length(models_test))
+            prediction = predict(current_betas[i], nn_params, models_test[idx].problem, test_data.timepoints)
+            observed = test_data.cpeptide[idx, :]
 
             # Filter out any missing values
             valid_indices = .!ismissing.(prediction)
@@ -352,7 +394,7 @@ if tim_figures
     ###################### MSE Violin Plot  ######################
     mse_violin_figure = let fig
         fig = Figure(size = (700, 500))
-        unique_types_violin = unique(current_train_types)
+        unique_types_violin = unique(current_types)
         ax = Axis(fig[1,1], 
                   xticks= (1:length(unique_types_violin), string.(unique_types_violin)), 
                   xlabel="Type", 
@@ -361,14 +403,14 @@ if tim_figures
         
         jitter_width = 0.1
         offset = -0.1
-        mse_values_violin = filter(!isinf, objectives_current_train) # Use pre-calculated MSEs, filter Infs
+        mse_values_violin = filter(!isinf, objectives_current) # Use pre-calculated MSEs, filter Infs
 
         plot_elements = [] # For legend
         labels = []
 
         for (k, type_val) in enumerate(unique_types_violin)
-            type_indices_violin = current_train_types .== type_val
-            type_mse = objectives_current_train[type_indices_violin]
+            type_indices_violin = current_types .== type_val
+            type_mse = objectives_current[type_indices_violin]
             type_mse_filtered = filter(x -> !isinf(x) && !isnan(x), type_mse) # Filter Inf/NaN for plotting
             
             if !isempty(type_mse_filtered)
