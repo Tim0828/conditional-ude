@@ -552,6 +552,71 @@ if tim_figures
     end
     save("figures/pp/error_correlations.$extension", error_correlation_figure, px_per_unit=4)
 
+    #################### Beta Posterior Plot ####################
+    beta_posterior_figure = let fig
+        fig = Figure(size = (1600, 600))
+        
+        # Extract posterior samples for beta
+        _, sym2range = bijector(turing_model, Val(true))
+        z = rand(advi_model, 100_000)
+        sampled_betas = z[union(sym2range[:β]...),:] # sampled beta parameters
+        
+        # Calculate density for exp(beta) which is more interpretable
+        exp_sampled_betas = exp.(sampled_betas)
+        
+        # First plot - exp(beta)
+        ax1 = Axis(fig[1, 1],
+            xlabel="exp(β)",
+            ylabel="Density",
+            title="Posterior Distribution of exp(β)",
+            limits=(0, 5, nothing, nothing)  # Limit x-axis to 0-5
+        )
+        
+        # Plot overall density
+        density!(ax1, vec(exp_sampled_betas), color=(:blue, 0.3), label="Overall")
+        
+        # Plot density by subject type
+        unique_types_in_train = unique(train_data.types[indices_train])
+        
+        for (i, type_val) in enumerate(unique_types_in_train)
+            type_indices = findall(t -> t == type_val, train_data.types[indices_train])
+            type_betas = sampled_betas[type_indices, :]
+            density!(ax1, vec(exp.(type_betas)), color=(Makie.wong_colors()[i], 0.5), label=type_val)
+        end
+        
+        # Add vertical line for the mean
+        mean_beta = mean(exp_sampled_betas)
+        vlines!(ax1, mean_beta, color=:red, linestyle=:dash, linewidth=2, label="Mean")
+        
+        Legend(fig[1,2], ax1)
+        
+        # Second plot - beta without transformation
+        ax2 = Axis(fig[1, 3],
+            xlabel="β",
+            ylabel="Density",
+            title="Posterior Distribution of β (without exp transform)"
+        )
+        
+        # Plot overall density
+        density!(ax2, vec(sampled_betas), color=(:blue, 0.3), label="Overall")
+        
+        # Plot density by subject type
+        for (i, type_val) in enumerate(unique_types_in_train)
+            type_indices = findall(t -> t == type_val, train_data.types[indices_train])
+            type_betas = sampled_betas[type_indices, :]
+            density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i], 0.5), label=type_val)
+        end
+        
+        # Add vertical line for the mean
+        mean_beta_raw = mean(sampled_betas)
+        vlines!(ax2, mean_beta_raw, color=:red, linestyle=:dash, linewidth=2, label="Mean")
+        
+        Legend(fig[1,4], ax2)
+        
+        fig
+    end
+    save("figures/pp/beta_posterior.$extension", beta_posterior_figure, px_per_unit=4)
+
 end
 
 # #################### ADVI Objective (ELBO) Plot ####################

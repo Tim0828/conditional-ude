@@ -25,7 +25,7 @@
 - vergelijking pakt median individual obv error, vergelijk dezelfde individuen
 - Is de error hoger voor de uitersten van de physio metrics (plot corr)
 - posterior plotten
-- verschillende initializations ADVI 
+- verschillende initializations ADVI
 define logdensity problem
 
 ## Week 5
