@@ -19,6 +19,7 @@
 - verzamel data;
 - vergelijk met week 3.
 
+
 ## Week 5
 
 - Varieer data door groep te oversamplen;
