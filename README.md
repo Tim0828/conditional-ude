@@ -21,12 +21,12 @@
 
 ### Meeting notes 14 mei (review week 3)
 
-- MLE 25 starting points, ADVI 1
-- vergelijking pakt median individual obv error, vergelijk dezelfde individuen
-- Is de error hoger voor de uitersten van de physio metrics (plot corr)
-- posterior plotten
-- verschillende initializations ADVI
-define logdensity problem
+- MLE 25 starting points, ADVI 1 (vaker runnen of in code implemteren)
+- vergelijking pakt median individual obv error, vergelijk dezelfde individuen (opgelost door alles te plotten)
+- Is de error hoger voor de uitersten van de physio metrics (plot corr) check
+- posterior plotten check
+- verschillende initializations ADVI (vaker runnen)
+- define logdensity problem
 
 ## Week 5
 
