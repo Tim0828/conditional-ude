@@ -1,4 +1,4 @@
-train_model = true
+train_model = false
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -103,7 +103,7 @@ if train_model
         advi_iterations = 2000
         advi_test_iterations = 1000
     end
-    advi = ADVI(4, advi_iterations)
+    advi = ADVI(5, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
 
@@ -119,7 +119,7 @@ if train_model
     turing_model_test = partial_pooled(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
 
     # train conditional model
-    advi_test = ADVI(4, advi_test_iterations)
+    advi_test = ADVI(5, advi_test_iterations)
     advi_model_test = vi(turing_model_test, advi_test)
     _, sym2range_test = bijector(turing_model_test, Val(true))
     z_test = rand(advi_model_test, 10_000)
