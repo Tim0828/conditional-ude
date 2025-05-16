@@ -88,7 +88,10 @@ end
 
 
 turing_model = partial_pooled(train_data.cpeptide[indices_train,:], train_data.timepoints, models_train[indices_train], init_params(models_train[1].chain));
-
+# create the models for the test data
+models_test = [
+    CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
+]
 if train_model
     # Train the model
     if quick_train
@@ -110,10 +113,7 @@ if train_model
     sampled_betas = z[union(sym2range[:β]...),:] # sampled parameters
     betas = mean(sampled_betas, dims=2)[:]
 
-    # create the models for the test data
-    models_test = [
-        CPeptideCUDEModel(test_data.glucose[i,:], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i,:], t2dm[i]) for i in axes(test_data.glucose, 1)
-    ]
+
 
     # fixed parameters for the test data
     turing_model_test = partial_pooled(test_data.cpeptide, test_data.timepoints, models_test, nn_params);
@@ -195,7 +195,10 @@ if tim_figures
         for i in 1:n_subjects
     ]
 
-    # Define markers for different types, as used in 02-conditional.jl
+    # save MSE values
+    save("data/partial_pooling/mse.jld2", "objectives_current", objectives_current)
+
+    # Define markers for different types as used in 02-conditional.jl
     MARKERS = Dict(
         "NGT" => '●',
         "IGT" => '▴',
@@ -253,8 +256,8 @@ if tim_figures
 
             sol_to_plot = sols_current[original_subject_idx]
 
-            lines!(axs[i], sol_timepoints, sol_to_plot[:,1], color=:blue, linewidth=1.5, label="Model fit")
-            scatter!(axs[i], current_timepoints, current_cpeptide[original_subject_idx,:], color=:black, markersize=5, label="Data")
+            lines!(axs[i], sol_timepoints, sol_to_plot[:,1], color=Makie.wong_colors()[1], linewidth=1.5, label="Model fit")
+            scatter!(axs[i], current_timepoints, current_cpeptide[original_subject_idx,:], color=Makie.wong_colors()[2], markersize=5, label="Data")
         end
 
         if length(axs) > 0
@@ -372,24 +375,25 @@ if tim_figures
         end
 
         # Plot residuals vs fitted
-        scatter!(ax[1], all_fitted, all_residuals, color="black", markersize=6)
-        hlines!(ax[1], 0, color=:red, linestyle=:dash)
+        scatter!(ax[1], all_fitted, all_residuals, color=Makie.wong_colors()[1], markersize=6)
+        hlines!(ax[1], 0, color=Makie.wong_colors()[3], linestyle=:dash)
 
         # QQ-plot of residuals
         sorted_residuals = sort(all_residuals)
         n = length(sorted_residuals)
         theoretical_quantiles = [quantile(Normal(), (i - 0.5) / n) for i in 1:n]
 
-        scatter!(ax[2], theoretical_quantiles, sorted_residuals, color="black", markersize=6)
+        scatter!(ax[2], theoretical_quantiles, sorted_residuals, color=Makie.wong_colors()[1], markersize=6)
 
         # Add reference line
         min_val = min(minimum(theoretical_quantiles), minimum(sorted_residuals))
         max_val = max(maximum(theoretical_quantiles), maximum(sorted_residuals))
         ref_line = [min_val, max_val]
-        lines!(ax[2], ref_line, ref_line, color=:red, linestyle=:dash)
+        lines!(ax[2], ref_line, ref_line, color=Makie.wong_colors()[3], linestyle=:dash)
 
         f
-        save("figures/pp/residuals.$extension", f)
+    end
+    save("figures/pp/residuals.$extension", f)
 
     ###################### MSE Violin Plot  ######################
     mse_violin_figure = let fig
@@ -421,12 +425,12 @@ if tim_figures
                         color=(Makie.wong_colors()[k], 0.5), side=:right)
                 
                 scatter!(ax, fill(k, length(type_mse_filtered)) .+ jitter , type_mse_filtered,
-                         color=:black, markersize=6, alpha=0.6)
+                         color=Makie.wong_colors()[1], markersize=6, alpha=0.6)
                 
                 # Add a marker for the median
                 median_val = median(type_mse_filtered)
                 scatter!(ax, [k], [median_val],
-                         color=:red, markersize=10, marker=:diamond)
+                         color=Makie.wong_colors()[3], markersize=10, marker=:diamond)
             else
                 println("Warning: No valid MSE data for type $type_val in violin plot.")
             end
@@ -436,9 +440,9 @@ if tim_figures
         # For simplicity, the plot is self-explanatory with title and axis labels.
         # If a legend is desired:
         legend_elements = [
-            MarkerElement(color=(:gray, 0.5), marker=Rect, markersize=15), # Representing violin
-            MarkerElement(color=:black, marker=:circle, markersize=6),
-            MarkerElement(color=:red, marker=:diamond, markersize=10)
+            MarkerElement(color=(Makie.wong_colors()[1], 0.5), marker=Rect, markersize=15), # Representing violin
+            MarkerElement(color=Makie.wong_colors()[1], marker=:circle, markersize=6),
+            MarkerElement(color=Makie.wong_colors()[3], marker=:diamond, markersize=10)
         ]
         legend_labels = ["Group Distribution", "Individual MSE", "Group Median"]
         Legend(fig[1,2], legend_elements, legend_labels, "Legend")
@@ -469,11 +473,14 @@ if tim_figures
                            p=ComponentArray(ode=[current_betas[i]], neural=nn_params), 
                            saveat=sol_timepoints, save_idxs=1))
             
-            lines!(ax, sol_timepoints, sol[:,1], color=:blue, linewidth=1.5, label="Model fit")
+            # Get type index for consistent coloring
+            type_idx = findfirst(x -> x == current_types[i], unique(current_types))
+            
+            lines!(ax, sol_timepoints, sol[:,1], color=Makie.wong_colors()[type_idx], linewidth=1.5, label="Model fit")
             
             # Plot the observed data
             scatter!(ax, current_timepoints, current_cpeptide[i,:], 
-                     color=:black, markersize=5, marker=MARKERS[current_types[i]], label="Data")
+                     color=Makie.wong_colors()[mod1(type_idx+1, length(Makie.wong_colors()))], markersize=5, marker=MARKERS[current_types[i]], label="Data")
             
             # Add MSE to the title
             mse = calculate_mse(current_cpeptide[i,:], predict(current_betas[i], nn_params, current_models_subset[i].problem, current_timepoints))
@@ -573,7 +580,7 @@ if tim_figures
         )
         
         # Plot overall density
-        density!(ax1, vec(exp_sampled_betas), color=(:blue, 0.3), label="Overall")
+        density!(ax1, vec(exp_sampled_betas), color=(Makie.wong_colors()[1], 0.3), label="Overall")
         
         # Plot density by subject type
         unique_types_in_train = unique(train_data.types[indices_train])
@@ -581,12 +588,12 @@ if tim_figures
         for (i, type_val) in enumerate(unique_types_in_train)
             type_indices = findall(t -> t == type_val, train_data.types[indices_train])
             type_betas = sampled_betas[type_indices, :]
-            density!(ax1, vec(exp.(type_betas)), color=(Makie.wong_colors()[i], 0.5), label=type_val)
+            density!(ax1, vec(exp.(type_betas)), color=(Makie.wong_colors()[i+1], 0.5), label=type_val)
         end
         
         # Add vertical line for the mean
         mean_beta = mean(exp_sampled_betas)
-        vlines!(ax1, mean_beta, color=:red, linestyle=:dash, linewidth=2, label="Mean")
+        vlines!(ax1, mean_beta, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
         
         Legend(fig[1,2], ax1)
         
@@ -598,18 +605,18 @@ if tim_figures
         )
         
         # Plot overall density
-        density!(ax2, vec(sampled_betas), color=(:blue, 0.3), label="Overall")
+        density!(ax2, vec(sampled_betas), color=(Makie.wong_colors()[1], 0.3), label="Overall")
         
         # Plot density by subject type
         for (i, type_val) in enumerate(unique_types_in_train)
             type_indices = findall(t -> t == type_val, train_data.types[indices_train])
             type_betas = sampled_betas[type_indices, :]
-            density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i], 0.5), label=type_val)
+            density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i+1], 0.5), label=type_val)
         end
         
         # Add vertical line for the mean
         mean_beta_raw = mean(sampled_betas)
-        vlines!(ax2, mean_beta_raw, color=:red, linestyle=:dash, linewidth=2, label="Mean")
+        vlines!(ax2, mean_beta_raw, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
         
         Legend(fig[1,4], ax2)
         
@@ -624,7 +631,7 @@ end
 #     ax = Axis(f[1, 1], title="ADVI ELBO History", xlabel="Iteration", ylabel="ELBO")
 #     # Use elbo_history from the stats returned by vi
 #     if !isempty(advi_stats.elbo_history)
-#         lines!(ax, 1:length(advi_stats.elbo_history), advi_stats.elbo_history, color=:blue, linewidth=2)
+#         lines!(ax, 1:length(advi_stats.elbo_history), advi_stats.elbo_history, color=Makie.wong_colors()[1], linewidth=2)
 #         println("Plotted ELBO history. Final ELBO: $(advi_stats.elbo_history[end]) after $(length(advi_stats.elbo_history)) iterations.")
 #     else
 #         println("ELBO history is empty. This might indicate an issue with the VI process or no iterations were run.")
@@ -633,5 +640,3 @@ end
 #     f
 # end
 # save("figures/pp/advi_elbo_history.$extension", figure_elbo_history)
-
-end

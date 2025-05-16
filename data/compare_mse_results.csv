@@ -1,0 +1,4 @@
+Type,MLE_CI_,MLE_CI_Upper,PP_CI_Lower,PP_CI_Upper,t_statistic,p_value,significant,n
+NGT,0.0862,1.1002,-0.0417,1.2594,-0.049,0.9613,False,30
+IGT,-0.0245,1.0068,0.1739,0.8341,-0.0539,0.9583,False,10
+T2DM,-0.0367,0.3411,0.2323,1.6342,-2.7715,0.0098,True,30

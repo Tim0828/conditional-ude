@@ -96,6 +96,12 @@ function argmedian(x)
     return argmin(abs.(x .- median(x)))
 end
 
+# save mse
+jldopen("data/mle/mse.jld2", "w") do file
+    file["train"] = objectives_train
+    file["test"] = objectives_test
+end
+
 if tim_figures
     #################### Model fit ####################
 
@@ -391,6 +397,121 @@ if tim_figures
 
     save("figures/c/mse_violin.$extension", mse_violin_figure, px_per_unit=4)
 
+    # Create a plot of model fits for individual subjects
+    individual_fits_figure = let fig
+        fig = Figure(size = (1500, 1000))
+        
+        # Calculate the number of rows and columns for the grid
+        n_subjects = length(models_test)
+        n_cols = 5
+        n_rows = ceil(Int, n_subjects / n_cols)
+        
+        # Create the simulation timepoints and solutions
+        sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
+        sols = [Array(solve(model.problem, 
+                           p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), 
+                           saveat=sol_timepoints, 
+                           save_idxs=1)) 
+                for (i, model) in enumerate(models_test)]
+        
+        # Create a grid layout for each subject
+        axes = [Axis(fig[div(i-1, n_cols) + 1, mod(i-1, n_cols) + 1], 
+                    xlabel="Time [min]", 
+                    ylabel="C-peptide [nmol/L]", 
+                    title="Subject $(i) ($(test_data.types[i]))")
+                for i in 1:n_subjects]
+        
+        # Plot each subject's data and model fit
+        for i in 1:n_subjects
+            # Add the model fit line
+            lines!(axes[i], sol_timepoints, sols[i][:,1], 
+                   color=:blue, linewidth=1.5, label="Model")
+            
+            # Add the data points
+            scatter!(axes[i], test_data.timepoints, test_data.cpeptide[i,:], 
+                    color=:black, markersize=6, label="Data")
+            
+            # Add MSE to the title
+            axes[i].title = "Subject $(i) ($(test_data.types[i])), MSE = $(round(objectives_test[i], digits=4))"
+        end
+        
+        # Link y-axes to have the same scale
+        linkyaxes!(axes...)
+        
+        fig
+    end
+
+    save("figures/c/individual_fits.$extension", individual_fits_figure, px_per_unit=4)
+
+    # Create a figure to correlate MSE with physiological metrics
+    mse_correlation_figure = let fig
+        fig = Figure(size = (1200, 800))
+        
+        # Define the physiological metrics to correlate with MSE
+        metrics = [
+            (test_data.first_phase, "1ˢᵗ Phase Clamp"),
+            (test_data.second_phase, "2ⁿᵈ Phase Clamp"),
+            (test_data.ages, "Age [y]"),
+            (test_data.insulin_sensitivity, "Ins. Sens. Index"),
+            (test_data.body_weights, "Body weight [kg]"),
+            (test_data.bmis, "BMI [kg/m²]")
+        ]
+        
+        # Calculate layout
+        n_cols = 3
+        n_rows = ceil(Int, length(metrics) / n_cols)
+        
+        # Create axes for each correlation
+        axes = []
+        
+        for (i, (metric, label)) in enumerate(metrics)
+            row = div(i-1, n_cols) + 1
+            col = mod(i-1, n_cols) + 1
+            
+            # Calculate correlation
+            correlation = corspearman(objectives_test, metric)
+            
+            # Create axis
+            ax = Axis(fig[row, col], 
+                     xlabel="Mean Squared Error", 
+                     ylabel=label,
+                     title="ρ = $(round(correlation, digits=4))")
+            push!(axes, ax)
+            
+            # Define markers for different types
+            MARKERS = Dict(
+                "NGT" => '●',
+                "IGT" => '▴',
+                "T2DM" => '■'
+            )
+            
+            MARKERSIZES = Dict(
+                "NGT" => 6,
+                "IGT" => 10,
+                "T2DM" => 6
+            )
+            
+            # Plot the data points for each type
+            for type in unique(test_data.types)
+                type_indices = test_data.types .== type
+                scatter!(ax, 
+                        objectives_test[type_indices], 
+                        metric[type_indices],
+                        color=:blue, 
+                        marker=MARKERS[type],
+                        markersize=MARKERSIZES[type],
+                        label=type)
+            end
+            
+        end
+        
+        # Add a single legend for all plots
+        Legend(fig[n_rows+1, :], axes[1], orientation=:horizontal, merge=true)
+        
+        fig
+    end
+
+    save("figures/c/mse_correlations.$extension", mse_correlation_figure, px_per_unit=4)
 end
 
 if MANUSCRIPT_FIGURES

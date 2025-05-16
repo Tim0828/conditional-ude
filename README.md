@@ -15,7 +15,8 @@
 
 ## Week 4
 
-- Implementeer no-pooling (eerst als LogDensity met AdvancedVI);
+- Implementeer no-pooling;
+- LogDensity met AdvancedVI --> zit vast;
 - verzamel data;
 - vergelijk met week 3.
 
@@ -26,7 +27,7 @@
 - Is de error hoger voor de uitersten van de physio metrics (plot corr) check
 - posterior plotten check
 - verschillende initializations ADVI (vaker runnen)
-- define logdensity problem
+- define logdensity problem --> nog niet gelukt
 
 ## Week 5
 
