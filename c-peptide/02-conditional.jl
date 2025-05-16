@@ -109,6 +109,10 @@ if tim_figures
         fig = Figure(size = (1000, 400))
         ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
         
+        # Add a supertitle above all subplots
+        Label(fig[0, 1:3], "Median C-peptide Model Fit Across Subject Types", 
+              fontsize = 16, font = :bold, padding = (0, 0, 20, 0))
+        
         # Do the simulations
         sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
         sols = [Array(solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
@@ -123,8 +127,8 @@ if tim_figures
             sol_idx = findfirst(objectives_test[type_indices] .== median(objectives_test[type_indices]))
             sol_type = sols[type_indices][sol_idx]
 
-            lines!(axs[i], sol_timepoints, sol_type[:,1], color=:blue, linewidth=1.5, label="Model fit")
-            scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx,:], color=:black, markersize=5, label="Data")
+            lines!(axs[i], sol_timepoints, sol_type[:, 1], color=Makie.wong_colors()[i+1], linewidth=1.5, label="Model fit")
+            scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx, :], color=Makie.wong_colors()[i+2], markersize=5, label="Data")
         end
 
         # linkyaxes!(axs...)
@@ -170,12 +174,12 @@ if tim_figures
         ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="1ˢᵗ Phase Clamp", 
                    title="ρ = $(round(correlation_first, digits=4))")
         
-        scatter!(ax1, exp_betas_train, train_data.first_phase, color=(:black, 0.2), 
+        scatter!(ax1, exp_betas_train, train_data.first_phase, color=(Makie.wong_colors()[1], 0.2),
                  markersize=10, label="Train Data", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
             scatter!(ax1, exp_betas_test[type_indices], test_data.first_phase[type_indices], 
-                     color=:blue, label="Test $type", marker=MARKERS[type], 
+                     color=Makie.wong_colors()[i+1], label="Test $type", marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
@@ -183,12 +187,12 @@ if tim_figures
         ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Age [y]", 
                    title="ρ = $(round(correlation_age, digits=4))")
         
-        scatter!(ax2, exp_betas_train, train_data.ages, color=(:black, 0.2), 
+        scatter!(ax2, exp_betas_train, train_data.ages, color=(Makie.wong_colors()[1], 0.2),
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
             scatter!(ax2, exp_betas_test[type_indices], test_data.ages[type_indices], 
-                     color=:blue, label=type, marker=MARKERS[type], 
+                     color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type],
                      markersize=MARKERSIZES[type])
         end
         
@@ -196,12 +200,12 @@ if tim_figures
         ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="Ins. Sens. Index", 
                   title="ρ = $(round(correlation_isi, digits=4))")
         
-        scatter!(ax3, exp_betas_train, train_data.insulin_sensitivity, color=(:black, 0.2), 
+        scatter!(ax3, exp_betas_train, train_data.insulin_sensitivity, color=(Makie.wong_colors()[1], 0.2),
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
             scatter!(ax3, exp_betas_test[type_indices], test_data.insulin_sensitivity[type_indices], 
-                     color=:blue, label=type, marker=MARKERS[type], 
+                color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type],
                      markersize=MARKERSIZES[type])
         end
         
@@ -243,12 +247,12 @@ if tim_figures
         ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="2ⁿᵈ Phase Clamp", 
                    title="ρ = $(round(correlation_second, digits=4))")
         
-        scatter!(ax1, exp_betas_train, train_data.second_phase, color=(:black, 0.2), 
+        scatter!(ax1, exp_betas_train, train_data.second_phase, color=(Makie.wong_colors()[1], 0.2), 
                  markersize=10, label="Train Data", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
             scatter!(ax1, exp_betas_test[type_indices], test_data.second_phase[type_indices], 
-                     color=:blue, label="Test $type", marker=MARKERS[type], 
+                     color=Makie.wong_colors()[i+1], label="Test $type", marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
@@ -256,12 +260,12 @@ if tim_figures
         ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Body weight [kg]", 
                    title="ρ = $(round(correlation_bw, digits=4))")
         
-        scatter!(ax2, exp_betas_train, train_data.body_weights, color=(:black, 0.2), 
+        scatter!(ax2, exp_betas_train, train_data.body_weights, color=(Makie.wong_colors()[1], 0.2), 
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
             scatter!(ax2, exp_betas_test[type_indices], test_data.body_weights[type_indices], 
-                     color=:blue, label=type, marker=MARKERS[type], 
+                     color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
@@ -269,12 +273,12 @@ if tim_figures
         ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="BMI [kg/m²]", 
                   title="ρ = $(round(correlation_bmi, digits=4))")
         
-        scatter!(ax3, exp_betas_train, train_data.bmis, color=(:black, 0.2), 
+        scatter!(ax3, exp_betas_train, train_data.bmis, color=(Makie.wong_colors()[1], 0.2), 
                  markersize=10, label="Train", marker='⋆')
         for (i,type) in enumerate(unique(test_data.types))
             type_indices = test_data.types .== type
             scatter!(ax3, exp_betas_test[type_indices], test_data.bmis[type_indices], 
-                     color=:blue, label=type, marker=MARKERS[type], 
+                     color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type], 
                      markersize=MARKERSIZES[type])
         end
         
@@ -319,10 +323,10 @@ if tim_figures
         
         # Scatter plot of residuals vs predicted values
         scatter!(ax_res, all_predictions, all_residuals, 
-                 color=:blue, markersize=4, alpha=0.6)
+                 color=Makie.wong_colors()[1], markersize=4, alpha=0.6)
         
         # Add a horizontal line at y=0
-        hlines!(ax_res, [0], color=:red, linestyle=:dash, linewidth=1.5)
+        hlines!(ax_res, [0], color=Makie.wong_colors()[2], linestyle=:dash, linewidth=1.5)
         
         # QQ Plot
         ax_qq = Axis(ga[2][1,1], 
@@ -337,14 +341,14 @@ if tim_figures
         
         # Create QQ plot
         scatter!(ax_qq, theoretical_quantiles, sorted_residuals, 
-                 color=:blue, markersize=4, alpha=0.6)
+                 color=Makie.wong_colors()[1], markersize=4, alpha=0.6)
         
         # Add reference line
         std_residuals = std(all_residuals)
         mean_residuals = mean(all_residuals)
         ref_line_x = [minimum(theoretical_quantiles), maximum(theoretical_quantiles)]
         ref_line_y = [mean_residuals + std_residuals * x for x in ref_line_x]
-        lines!(ax_qq, ref_line_x, ref_line_y, color=:red, linestyle=:dash, linewidth=1.5)
+        lines!(ax_qq, ref_line_x, ref_line_y, color=Makie.wong_colors()[2], linestyle=:dash, linewidth=1.5)
         
         fig
     end
@@ -374,22 +378,22 @@ if tim_figures
             
             # Plot the violin on the right side
             violin!(ax, fill(i, length(type_mse)), type_mse, 
-                    color=(:blue, 0.5), side=:right,
+                    color=(Makie.wong_colors()[i+1], 0.5), side=:right,
                     label=type)
             
             # Add scatter points with jitter
             scatter!(ax, fill(i, length(type_mse)) .+ jitter, type_mse,
-                     color=:black, markersize=6, alpha=0.6)
+                     color=Makie.wong_colors()[i+1], markersize=6, alpha=0.6)
             
             # Add a marker for the median
             scatter!(ax, [i], [median(type_mse)],
-                     color=:red, markersize=10, marker=:diamond)
+                     color=Makie.wong_colors()[end], markersize=10, marker=:diamond)
         end
         
         # Add a legend
         Legend(fig[1,2], [
-            MarkerElement(color=:black, marker=:circle, markersize=8),
-            MarkerElement(color=:red, marker=:diamond, markersize=10)
+            MarkerElement(color=Makie.wong_colors()[2], marker=:circle, markersize=8),
+            MarkerElement(color=Makie.wong_colors()[end], marker=:diamond, markersize=10)
         ], ["Individual MSE", "Group Median"], "Legend")
         
         fig
@@ -423,13 +427,17 @@ if tim_figures
         
         # Plot each subject's data and model fit
         for i in 1:n_subjects
+            # Get the color based on subject type
+            type_index = findfirst(==(test_data.types[i]), unique(test_data.types))
+            color_index = isnothing(type_index) ? 1 : type_index + 1
+            
             # Add the model fit line
             lines!(axes[i], sol_timepoints, sols[i][:,1], 
-                   color=:blue, linewidth=1.5, label="Model")
+                   color=Makie.wong_colors()[color_index], linewidth=1.5, label="Model")
             
             # Add the data points
             scatter!(axes[i], test_data.timepoints, test_data.cpeptide[i,:], 
-                    color=:black, markersize=6, label="Data")
+                    color=Makie.wong_colors()[color_index+1], markersize=6, label="Data")
             
             # Add MSE to the title
             axes[i].title = "Subject $(i) ($(test_data.types[i])), MSE = $(round(objectives_test[i], digits=4))"
@@ -492,12 +500,12 @@ if tim_figures
             )
             
             # Plot the data points for each type
-            for type in unique(test_data.types)
+            for (j, type) in enumerate(unique(test_data.types))
                 type_indices = test_data.types .== type
                 scatter!(ax, 
                         objectives_test[type_indices], 
                         metric[type_indices],
-                        color=:blue, 
+                        color=Makie.wong_colors()[j+1], 
                         marker=MARKERS[type],
                         markersize=MARKERSIZES[type],
                         label=type)
