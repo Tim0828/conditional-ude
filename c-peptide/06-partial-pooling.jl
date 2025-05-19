@@ -127,13 +127,13 @@ if train_model
     else
         # Larger number of iterations for full training
         advi_iterations = 3000
-        advi_test_iterations = 1000
+        advi_test_iterations = 5000
     end
     advi = ADVI(3, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
 
-    z = rand(advi_model, 10_000)
+    z = rand(advi_model, 30_000)
     sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
     nn_params = mean(sampled_nn_params, dims=2)[:]
     sampled_betas = z[union(sym2range[:β]...), :] # sampled parameters
