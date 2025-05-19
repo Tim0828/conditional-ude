@@ -403,12 +403,18 @@ if tim_figures
 
     # Create a plot of model fits for individual subjects
     individual_fits_figure = let fig
-        fig = Figure(size = (1500, 1000))
-        
+
         # Calculate the number of rows and columns for the grid
         n_subjects = length(models_test)
         n_cols = 5
         n_rows = ceil(Int, n_subjects / n_cols)
+
+        fig = Figure(size=(200 * n_cols, 150 * n_rows), 
+                     title="Individual Model Fits", 
+                     fontsize=8pt, 
+                     font=FONTS.regular)
+        
+        
         
         # Create the simulation timepoints and solutions
         sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
@@ -443,8 +449,8 @@ if tim_figures
             axes[i].title = "Subject $(i) ($(test_data.types[i])), MSE = $(round(objectives_test[i], digits=4))"
         end
         
-        # Link y-axes to have the same scale
-        linkyaxes!(axes...)
+        # # Link y-axes to have the same scale
+        # linkyaxes!(axes...)
         
         fig
     end

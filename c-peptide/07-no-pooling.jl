@@ -1,4 +1,4 @@
-train_model = false
+train_model = true
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -54,40 +54,33 @@ function predict(β, neural_network_parameters, problem, timepoints)
     return solution
 end
 
-@model function partial_pooled(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
-
-    # distribution for the population mean and precision
-    μ_beta ~ Normal(0.0, 10.0)
-    σ_beta ~ InverseGamma(2, 3)
+@model function no_pooling(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
+    # In a no-pooling model, we don't have population-level parameters (μ_beta and σ_beta)
+    # Each beta is independent with its own prior
 
     # distribution for the individual model parameters
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
-        β[i] ~ Normal(μ_beta, σ_beta)
-        # β[i] ~ Normal(μ_beta, σ_beta)
+        # Each β gets its own independent prior
+        β[i] ~ Normal(0.0, 10.0)  # Wide prior since we're not pooling information
     end
-    #β ~ MvNormal(ones(length(models)), 5.0 * I)
-    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
-    # for i in 1:length(models)
-    #     β[i] ~ truncated(Normal(μ_beta, σ_beta), lower=0.0)
-    # end
 
+    # Neural network parameters
+    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
+  
     # distribution for the model error
     σ ~ InverseGamma(2, 3)
 
     for i in eachindex(models)
         prediction = predict(β[i], nn, models[i].problem, timepoints)
         data[i, :] ~ MvNormal(prediction, σ * I)
-        # for j in eachindex(prediction)
-        #     data[i,j] ~ Normal(prediction[j], σ)
-        # end
     end
 
     return nothing
 end
 
 
-turing_model = partial_pooled(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], init_params(models_train[1].chain));
+turing_model = no_pooling(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], init_params(models_train[1].chain));
 # create the models for the test data
 models_test = [
     CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
@@ -116,7 +109,7 @@ if train_model
 
 
     # fixed parameters for the test data
-    turing_model_test = partial_pooled(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
+    turing_model_test = no_pooling(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
 
     # train conditional model
     advi_test = ADVI(5, advi_test_iterations)
@@ -127,11 +120,11 @@ if train_model
     betas_test = mean(sampled_betas_test, dims=2)[:]
 
     # save the model
-    save("data/partial_pooling/advi_model.jld2", "advi_model", advi_model)
-    save("data/partial_pooling/advi_model_test.jld2", "advi_model_test", advi_model_test)
-    save("data/partial_pooling/nn_params.jld2", "nn_params", nn_params)
-    save("data/partial_pooling/betas.jld2", "betas", betas)
-    save("data/partial_pooling/betas_test.jld2", "betas_test", betas_test)
+    save("data/no_pooling/advi_model.jld2", "advi_model", advi_model)
+    save("data/no_pooling/advi_model_test.jld2", "advi_model_test", advi_model_test)
+    save("data/no_pooling/nn_params.jld2", "nn_params", nn_params)
+    save("data/no_pooling/betas.jld2", "betas", betas)
+    save("data/no_pooling/betas_test.jld2", "betas_test", betas_test)
 
     predictions = [
         predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i, idx) in enumerate(indices_train)
@@ -143,19 +136,19 @@ if train_model
         predict(betas_test[i], nn_params, models_test[idx].problem, test_data.timepoints) for (i, idx) in enumerate(indices_test)
     ]
     # Save the predictions
-    save("data/partial_pooling/predictions.jld2", "predictions", predictions)
-    save("data/partial_pooling/predictions_test.jld2", "predictions_test", predictions_test)
+    save("data/no_pooling/predictions.jld2", "predictions", predictions)
+    save("data/no_pooling/predictions_test.jld2", "predictions_test", predictions_test)
 
 else
     # Load the model
-    advi_model = JLD2.load("data/partial_pooling/advi_model.jld2", "advi_model")
-    advi_model_test = JLD2.load("data/partial_pooling/advi_model_test.jld2", "advi_model_test")
-    nn_params = JLD2.load("data/partial_pooling/nn_params.jld2", "nn_params")
-    betas = JLD2.load("data/partial_pooling/betas.jld2", "betas")
-    betas_test = JLD2.load("data/partial_pooling/betas_test.jld2", "betas_test")
+    advi_model = JLD2.load("data/no_pooling/advi_model.jld2", "advi_model")
+    advi_model_test = JLD2.load("data/no_pooling/advi_model_test.jld2", "advi_model_test")
+    nn_params = JLD2.load("data/no_pooling/nn_params.jld2", "nn_params")
+    betas = JLD2.load("data/no_pooling/betas.jld2", "betas")
+    betas_test = JLD2.load("data/no_pooling/betas_test.jld2", "betas_test")
 
-    predictions = JLD2.load("data/partial_pooling/predictions.jld2", "predictions")
-    predictions_test = JLD2.load("data/partial_pooling/predictions_test.jld2", "predictions_test")
+    predictions = JLD2.load("data/no_pooling/predictions.jld2", "predictions")
+    predictions_test = JLD2.load("data/no_pooling/predictions_test.jld2", "predictions_test")
 end
 
 
@@ -269,7 +262,7 @@ if tim_figures
         end
         fig
     end
-    save("figures/pp/model_fit.$extension", model_fit_figure, px_per_unit=4)
+    save("figures/np/model_fit.$extension", model_fit_figure, px_per_unit=4)
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
     exp_betas = exp.(current_betas)
@@ -343,7 +336,7 @@ if tim_figures
         Legend(fig[2, 1:3], ax1, orientation=:horizontal)
         fig
     end
-    save("figures/pp/correlations.$extension", correlation_figure, px_per_unit=4)
+    save("figures/np/correlations.$extension", correlation_figure, px_per_unit=4)
 
     #################### Additional Correlation Plots (adapted from 02-conditional.jl) ####################
     additional_correlation_figure = let fig
@@ -416,7 +409,7 @@ if tim_figures
         Legend(fig[2, 1:3], ax1, orientation=:horizontal)
         fig
     end
-    save("figures/pp/additional_correlations.$extension", additional_correlation_figure, px_per_unit=4)
+    save("figures/np/additional_correlations.$extension", additional_correlation_figure, px_per_unit=4)
 
     ###################### Residual and QQ plots ######################
     figure_residuals = let f
@@ -458,7 +451,7 @@ if tim_figures
         ref_line = [min_val, max_val]
         lines!(ax[2], ref_line, ref_line, color=Makie.wong_colors()[3], linestyle=:dash)
 
-        save("figures/pp/residuals.$extension", f)
+        save("figures/np/residuals.$extension", f)
 
     end
 
@@ -516,7 +509,7 @@ if tim_figures
 
         fig
     end
-    save("figures/pp/mse_violin.$extension", mse_violin_figure, px_per_unit=4)
+    save("figures/np/mse_violin.$extension", mse_violin_figure, px_per_unit=4)
 
     #################### All Model Fits ####################
     all_model_fits_figure = let fig
@@ -553,14 +546,12 @@ if tim_figures
             mse = calculate_mse(current_cpeptide[i, :], predict(current_betas[i], nn_params, current_models_subset[i].problem, current_timepoints))
             ax.title = "$(current_types[i]) #$(i) (MSE: $(round(mse, digits=3)))"
 
-        
         end
 
-       
 
         fig
     end
-    save("figures/pp/all_model_fits.$extension", all_model_fits_figure, px_per_unit=2)
+    save("figures/np/all_model_fits.$extension", all_model_fits_figure, px_per_unit=2)
 
     #################### Correlation Between Error and Physiological Metrics ####################
     error_correlation_figure = let fig
@@ -635,7 +626,7 @@ if tim_figures
 
         fig
     end
-    save("figures/pp/error_correlations.$extension", error_correlation_figure, px_per_unit=4)
+    save("figures/np/error_correlations.$extension", error_correlation_figure, px_per_unit=4)
 
     #################### Beta Posterior Plot ####################
     beta_posterior_figure = let fig
@@ -700,21 +691,7 @@ if tim_figures
 
         fig
     end
-    save("figures/pp/beta_posterior.$extension", beta_posterior_figure, px_per_unit=4)
+    save("figures/np/beta_posterior.$extension", beta_posterior_figure, px_per_unit=4)
 
 end
 
-# #################### ADVI Objective (ELBO) Plot ####################
-# figure_elbo_history = let f = Figure()
-#     ax = Axis(f[1, 1], title="ADVI ELBO History", xlabel="Iteration", ylabel="ELBO")
-#     # Use elbo_history from the stats returned by vi
-#     if !isempty(advi_stats.elbo_history)
-#         lines!(ax, 1:length(advi_stats.elbo_history), advi_stats.elbo_history, color=Makie.wong_colors()[1], linewidth=2)
-#         println("Plotted ELBO history. Final ELBO: $(advi_stats.elbo_history[end]) after $(length(advi_stats.elbo_history)) iterations.")
-#     else
-#         println("ELBO history is empty. This might indicate an issue with the VI process or no iterations were run.")
-#         text!(ax, "ELBO history is empty", position=(0.5, 0.5), align=(:center, :center))
-#     end
-#     f
-# end
-# save("figures/pp/advi_elbo_history.$extension", figure_elbo_history)
