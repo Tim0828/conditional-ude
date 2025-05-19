@@ -1,4 +1,4 @@
-train_model = false
+train_model = true
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -57,7 +57,7 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
-    μ_beta ~ Normal(0.0, 10.0)
+    μ_beta ~ Normal(0.0, 5.0)
     σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters
@@ -86,6 +86,32 @@ end
     return nothing
 end
 
+@model function partial_pooled_test(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
+
+    # distribution for the population mean and precision
+    μ_beta ~ Normal(0.0, 7.0)
+    σ_beta ~ InverseGamma(2, 3)
+
+    # distribution for the individual model parameters
+    β = Vector{T}(undef, length(models))
+    for i in eachindex(models)
+        β[i] ~ Normal(μ_beta, σ_beta)
+        
+    end
+
+    nn = neural_network_parameters
+  
+
+    # distribution for the model error
+    σ ~ InverseGamma(2, 3)
+
+    for i in eachindex(models)
+        prediction = predict(β[i], nn, models[i].problem, timepoints)
+        data[i, :] ~ MvNormal(prediction, σ * I)
+    end
+
+    return nothing
+end
 
 turing_model = partial_pooled(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], init_params(models_train[1].chain));
 # create the models for the test data
@@ -100,10 +126,10 @@ if train_model
         advi_test_iterations = 1
     else
         # Larger number of iterations for full training
-        advi_iterations = 2000
+        advi_iterations = 3000
         advi_test_iterations = 1000
     end
-    advi = ADVI(5, advi_iterations)
+    advi = ADVI(3, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
 
@@ -116,23 +142,24 @@ if train_model
 
 
     # fixed parameters for the test data
-    turing_model_test = partial_pooled(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
+    turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
 
     # train conditional model
-    advi_test = ADVI(5, advi_test_iterations)
+    advi_test = ADVI(3, advi_test_iterations)
     advi_model_test = vi(turing_model_test, advi_test)
     _, sym2range_test = bijector(turing_model_test, Val(true))
     z_test = rand(advi_model_test, 10_000)
     sampled_betas_test = z_test[union(sym2range_test[:β]...), :] # sampled parameters
     betas_test = mean(sampled_betas_test, dims=2)[:]
 
-    # save the model
-    save("data/partial_pooling/advi_model.jld2", "advi_model", advi_model)
-    save("data/partial_pooling/advi_model_test.jld2", "advi_model_test", advi_model_test)
-    save("data/partial_pooling/nn_params.jld2", "nn_params", nn_params)
-    save("data/partial_pooling/betas.jld2", "betas", betas)
-    save("data/partial_pooling/betas_test.jld2", "betas_test", betas_test)
-
+    if quick_train == false
+        # save the model
+        save("data/partial_pooling/advi_model.jld2", "advi_model", advi_model)
+        save("data/partial_pooling/advi_model_test.jld2", "advi_model_test", advi_model_test)
+        save("data/partial_pooling/nn_params.jld2", "nn_params", nn_params)
+        save("data/partial_pooling/betas.jld2", "betas", betas)
+        save("data/partial_pooling/betas_test.jld2", "betas_test", betas_test)
+    end
     predictions = [
         predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i, idx) in enumerate(indices_train)
     ]
@@ -142,9 +169,12 @@ if train_model
     predictions_test = [
         predict(betas_test[i], nn_params, models_test[idx].problem, test_data.timepoints) for (i, idx) in enumerate(indices_test)
     ]
-    # Save the predictions
-    save("data/partial_pooling/predictions.jld2", "predictions", predictions)
-    save("data/partial_pooling/predictions_test.jld2", "predictions_test", predictions_test)
+    if quick_train == false
+        # Save the predictions
+        save("data/partial_pooling/predictions.jld2", "predictions", predictions)
+        save("data/partial_pooling/predictions_test.jld2", "predictions_test", predictions_test)
+    end
+
 
 else
     # Load the model

@@ -79,6 +79,31 @@ end
     return nothing
 end
 
+@model function no_pooling_test(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
+    # In a no-pooling model, we don't have population-level parameters (μ_beta and σ_beta)
+    # Each beta is independent with its own prior
+
+    # distribution for the individual model parameters
+    β = Vector{T}(undef, length(models))
+    for i in eachindex(models)
+        # Each β gets its own independent prior
+        β[i] ~ Normal(0.0, 10.0)  # Wide prior since we're not pooling information
+    end
+
+    # Neural network parameters
+    nn = neural_network_parameters
+
+    # distribution for the model error
+    σ ~ InverseGamma(2, 3)
+
+    for i in eachindex(models)
+        prediction = predict(β[i], nn, models[i].problem, timepoints)
+        data[i, :] ~ MvNormal(prediction, σ * I)
+    end
+
+    return nothing
+end
+
 
 turing_model = no_pooling(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], init_params(models_train[1].chain));
 # create the models for the test data
@@ -93,10 +118,10 @@ if train_model
         advi_test_iterations = 1
     else
         # Larger number of iterations for full training
-        advi_iterations = 2000
+        advi_iterations = 3000
         advi_test_iterations = 1000
     end
-    advi = ADVI(5, advi_iterations)
+    advi = ADVI(3, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
 
@@ -109,10 +134,10 @@ if train_model
 
 
     # fixed parameters for the test data
-    turing_model_test = no_pooling(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
+    turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
 
     # train conditional model
-    advi_test = ADVI(5, advi_test_iterations)
+    advi_test = ADVI(3, advi_test_iterations)
     advi_model_test = vi(turing_model_test, advi_test)
     _, sym2range_test = bijector(turing_model_test, Val(true))
     z_test = rand(advi_model_test, 10_000)
