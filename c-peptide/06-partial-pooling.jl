@@ -1,4 +1,4 @@
-train_model = true
+train_model = false
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -732,19 +732,300 @@ if tim_figures
     end
     save("figures/pp/beta_posterior.$extension", beta_posterior_figure, px_per_unit=4)
 
-end
+    #################### Euclidean Distance from Mean vs Error ####################
+    euclidean_distance_figure = let fig
+        fig = Figure(size=(800, 600))
 
-# #################### ADVI Objective (ELBO) Plot ####################
-# figure_elbo_history = let f = Figure()
-#     ax = Axis(f[1, 1], title="ADVI ELBO History", xlabel="Iteration", ylabel="ELBO")
-#     # Use elbo_history from the stats returned by vi
-#     if !isempty(advi_stats.elbo_history)
-#         lines!(ax, 1:length(advi_stats.elbo_history), advi_stats.elbo_history, color=Makie.wong_colors()[1], linewidth=2)
-#         println("Plotted ELBO history. Final ELBO: $(advi_stats.elbo_history[end]) after $(length(advi_stats.elbo_history)) iterations.")
-#     else
-#         println("ELBO history is empty. This might indicate an issue with the VI process or no iterations were run.")
-#         text!(ax, "ELBO history is empty", position=(0.5, 0.5), align=(:center, :center))
-#     end
-#     f
-# end
-# save("figures/pp/advi_elbo_history.$extension", figure_elbo_history)
+        # Calculate MSE for each subject (already done in objectives_current)
+        errors = objectives_current
+
+        # Get the physiological metrics
+        physiological_metrics = [
+            test_data.first_phase,
+            test_data.second_phase,
+            test_data.ages,
+            test_data.insulin_sensitivity,
+            test_data.body_weights,
+            test_data.bmis
+        ]
+
+        metric_names = [
+            "1ˢᵗ Phase Clamp",
+            "2ⁿᵈ Phase Clamp",
+            "Age [y]",
+            "Ins. Sens. Index",
+            "Body weight [kg]",
+            "BMI [kg/m²]"
+        ]
+
+        # Filter out subjects with Inf errors
+        valid_indices = .!isinf.(errors)
+        if !any(valid_indices)
+            @warn "No valid (non-Inf MSE) subjects found"
+            return fig
+        end
+
+        # Calculate the mean of each physiological metric
+        means = [mean(metric[valid_indices]) for metric in physiological_metrics]
+
+        # Calculate the standard deviation of each physiological metric for normalization
+        stds = [std(metric[valid_indices]) for metric in physiological_metrics]
+
+        # Calculate the Euclidean distance from the mean for each subject
+        euclidean_distances = zeros(length(errors[valid_indices]))
+
+        for i in eachindex(euclidean_distances)
+            # Get the subject index in the original array
+            subject_idx = findall(valid_indices)[i]
+
+            # Calculate normalized squared differences
+            squared_diffs = [
+                ((physiological_metrics[j][subject_idx] - means[j]) / stds[j])^2
+                for j in eachindex(physiological_metrics)
+            ]
+
+            # Euclidean distance is the square root of the sum of squared differences
+            euclidean_distances[i] = sqrt(sum(squared_diffs))
+        end
+
+        # Calculate correlation
+        correlation = corspearman(euclidean_distances, errors[valid_indices])
+
+        # Create the main plot
+        ax = Axis(fig[1, 1],
+            xlabel="Normalized Euclidean Distance from Mean",
+            ylabel="Mean Squared Error",
+            title="Correlation Between Euclidean Distance and Model Error\nρ = $(round(correlation, digits=4))")
+
+        # Plot points by type
+        for (j, type_val) in enumerate(unique(current_types))
+            # Get indices for this type that also have valid errors
+            type_valid_mask = (current_types .== type_val) .& valid_indices
+
+            if any(type_valid_mask)
+                # Find the positions in the euclidean_distances array
+                type_indices_in_valid = findall(current_types[valid_indices] .== type_val)
+
+                scatter!(ax,
+                    euclidean_distances[type_indices_in_valid],
+                    errors[type_valid_mask],
+                    color=Makie.wong_colors()[j],
+                    label=type_val,
+                    marker=MARKERS[type_val],
+                    markersize=MARKERSIZES[type_val])
+            end
+        end        # Add a linear regression line
+        model_x = LinRange(minimum(euclidean_distances), maximum(euclidean_distances), 100)
+
+        # Use GLM for the regression
+        df_reg = DataFrame(
+            x=euclidean_distances,
+            y=errors[valid_indices]
+        )
+        linear_model = lm(@formula(y ~ x), df_reg)
+        reg_coefs = coef(linear_model)
+        model_y = reg_coefs[1] .+ reg_coefs[2] .* model_x
+        r_squared_simple = r2(linear_model)
+
+        lines!(ax, model_x, model_y, color=:red, linestyle=:dash, linewidth=2)
+
+        # Add R² annotation to the plot
+        text!(ax, "R² = $(round(r_squared_simple, digits=3))",
+            position=(minimum(euclidean_distances) + 0.7 * (maximum(euclidean_distances) - minimum(euclidean_distances)),
+                minimum(errors[valid_indices]) + 0.9 * (maximum(errors[valid_indices]) - minimum(errors[valid_indices]))),
+            align=(:center, :center),
+            fontsize=14)
+
+        # Add legend
+        legend_elements = [
+            MarkerElement(color=Makie.wong_colors()[1], marker=MARKERS["NGT"], markersize=MARKERSIZES["NGT"]),
+            MarkerElement(color=Makie.wong_colors()[2], marker=MARKERS["IGT"], markersize=MARKERSIZES["IGT"]),
+            MarkerElement(color=Makie.wong_colors()[3], marker=MARKERS["T2DM"], markersize=MARKERSIZES["T2DM"]),
+            LineElement(color=:red, linestyle=:dash, linewidth=2)
+        ]
+        legend_labels = ["NGT", "IGT", "T2DM", "Linear Fit"]
+        Legend(fig[1, 2], legend_elements, legend_labels)        # Add regression analysis on z-scores in the second row
+        ga = GridLayout(fig[2, 1:2])
+        ax2 = Axis(ga[1, 1],
+            xlabel="Physiological Metric",
+            ylabel="Regression Coefficient (Standardized)",
+            title="Relative Importance of Physiological Metrics in Predicting Error (Multiple Regression)")        # Create a matrix of z-scores for all metrics and subjects
+        z_score_matrix = zeros(sum(valid_indices), length(physiological_metrics))
+
+        for (j, _) in enumerate(physiological_metrics)
+            # Calculate z-scores for all valid subjects (without taking absolute value)
+            z_score_matrix[:, j] = (physiological_metrics[j][valid_indices] .- means[j]) ./ stds[j]
+        end
+
+        # Create a DataFrame for the multiple regression
+        df_multi = DataFrame(
+            MSE=errors[valid_indices],
+            FirstPhase=z_score_matrix[:, 1],
+            SecondPhase=z_score_matrix[:, 2],
+            Age=z_score_matrix[:, 3],
+            InsulinSensitivity=z_score_matrix[:, 4],
+            BodyWeight=z_score_matrix[:, 5],
+            BMI=z_score_matrix[:, 6]
+        )
+
+        # Perform multiple linear regression using GLM
+        multi_model = lm(@formula(MSE ~ FirstPhase + SecondPhase + Age + InsulinSensitivity +
+                                        BodyWeight + BMI), df_multi)
+
+        # Get the regression coefficients (skip the intercept)
+        regression_weights = coef(multi_model)[2:end]
+
+        # Get the R² of the regression
+        r_squared = r2(multi_model)
+
+        # Display the regression summary in the console for reference
+        println("Multiple regression model summary:")
+        println(coeftable(multi_model))
+
+        # Create barplot with absolute weights (to show magnitude of effect)
+        # but color according to sign (positive or negative effect)
+        colors = [regression_weights[i] >= 0 ? Makie.wong_colors()[1] : Makie.wong_colors()[2] for i in 1:length(regression_weights)]
+
+        barplot!(ax2, 1:length(metric_names), abs.(regression_weights),
+            color=colors)
+
+        # Add a horizontal line at zero to emphasize direction
+        hlines!(ax2, 0, color=:black, linestyle=:dash)
+
+        # Add text annotation with the R² value
+        text!(ax2, "R² = $(round(r_squared, digits=3))",
+            position=(length(metric_names) / 2, maximum(abs.(regression_weights)) * 0.9),
+            align=(:center, :center),
+            fontsize=14)
+
+        # Set x-ticks to metric names
+        ax2.xticks = (1:length(metric_names), metric_names)
+        ax2.xticklabelrotation = π / 4  # Rotate labels for better readability
+
+        # Add a legend for the colors
+        legend_elements = [
+            MarkerElement(color=Makie.wong_colors()[1], marker=:rect, markersize=15),
+            MarkerElement(color=Makie.wong_colors()[2], marker=:rect, markersize=15)
+        ]
+        legend_labels = ["Positive Effect", "Negative Effect"]
+        Legend(fig[2, 2], legend_elements, legend_labels)
+
+        fig
+    end
+    save("figures/np/euclidean_distance.$extension", euclidean_distance_figure, px_per_unit=4)
+
+    #################### Z-Score vs Error Correlation ####################
+    zscore_correlation_figure = let fig
+        fig = Figure(size=(1200, 800))
+
+        # Calculate MSE for each subject
+        errors = objectives_current
+
+        # Physiological metrics
+        metrics = [
+            test_data.first_phase,
+            test_data.second_phase,
+            test_data.ages,
+            test_data.insulin_sensitivity,
+            test_data.body_weights,
+            test_data.bmis
+        ]
+
+        metric_names = [
+            "1ˢᵗ Phase Clamp",
+            "2ⁿᵈ Phase Clamp",
+            "Age [y]",
+            "Ins. Sens. Index",
+            "Body weight [kg]",
+            "BMI [kg/m²]"
+        ]
+
+        # Filter out subjects with Inf errors
+        valid_indices = .!isinf.(errors)
+        if !any(valid_indices)
+            @warn "No valid (non-Inf MSE) subjects found"
+            return fig
+        end
+
+        # Calculate the mean and std of each physiological metric
+        means = [mean(metric[valid_indices]) for metric in metrics]
+        stds = [std(metric[valid_indices]) for metric in metrics]
+
+        # Create a 2x3 grid of plots
+        for i in 1:6
+            row = div(i - 1, 3) + 1
+            col = mod1(i, 3)
+
+            # Calculate z-scores for this metric
+            z_scores = (metrics[i][valid_indices] .- means[i]) ./ stds[i]
+            abs_z_scores = abs.(z_scores)
+
+            # Calculate correlation
+            correlation = corspearman(abs_z_scores, errors[valid_indices])
+
+            ax = Axis(fig[row, col],
+                xlabel="Z-Score: $(metric_names[i])",
+                ylabel="Mean Squared Error",
+                title="ρ = $(round(correlation, digits=4))")
+
+            # Plot by type
+            for (j, type_val) in enumerate(unique(current_types))
+                # Get indices for this type that also have valid errors
+                type_valid_mask = (current_types .== type_val) .& valid_indices
+
+                if any(type_valid_mask)
+                    # Find the positions in the z_scores array
+                    type_indices_in_valid = findall(current_types[valid_indices] .== type_val)
+
+                    scatter!(ax,
+                        abs_z_scores[type_indices_in_valid],
+                        errors[type_valid_mask],
+                        color=Makie.wong_colors()[j],
+                        label=type_val,
+                        marker=MARKERS[type_val],
+                        markersize=MARKERSIZES[type_val])
+                end
+            end
+            # Add linear regression line
+            if !isempty(z_scores)
+                x_range = LinRange(0, maximum(abs_z_scores), 100)
+
+                # Use GLM for the regression
+                df_reg = DataFrame(
+                    x=abs_z_scores,
+                    y=errors[valid_indices]
+                )
+                linear_model = lm(@formula(y ~ x), df_reg)
+                reg_coefs = coef(linear_model)
+                r_squared = r2(linear_model)
+
+                # Plot regression line
+                lines!(ax, x_range, reg_coefs[1] .+ reg_coefs[2] .* x_range, color=:red, linestyle=:dash)
+
+                # Add R² annotation to the plot
+                text!(ax, "R² = $(round(r_squared, digits=3))",
+                    position=(0.7 * (maximum(abs_z_scores) - minimum(abs_z_scores)),
+                        minimum(errors[valid_indices]) + 0.9 * (maximum(errors[valid_indices]) - minimum(errors[valid_indices]))),
+                    align=(:center, :center),
+                    fontsize=10)
+            end
+        end
+
+        # Add a single legend for all plots
+        legend_elements = [
+            MarkerElement(color=Makie.wong_colors()[1], marker=MARKERS["NGT"], markersize=MARKERSIZES["NGT"]),
+            MarkerElement(color=Makie.wong_colors()[2], marker=MARKERS["IGT"], markersize=MARKERSIZES["IGT"]),
+            MarkerElement(color=Makie.wong_colors()[3], marker=MARKERS["T2DM"], markersize=MARKERSIZES["T2DM"]),
+            LineElement(color=:red, linestyle=:dash)
+        ]
+        legend_labels = ["NGT", "IGT", "T2DM", "Linear Fit"]
+        Legend(fig[3, 1:3], legend_elements, legend_labels, orientation=:horizontal)
+
+        # Add a supertitle
+        Label(fig[0, 1:3], "Correlation Between Z-Scores and Model Error",
+            fontsize=16, font=:bold, padding=(0, 0, 20, 0))
+
+        fig
+    end
+    save("figures/np/zscore_correlations.$extension", zscore_correlation_figure, px_per_unit=4)
+end
