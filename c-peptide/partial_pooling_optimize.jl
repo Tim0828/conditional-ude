@@ -230,3 +230,6 @@ println("  mu_mu_beta: ", optimal_params[1])
 println("  mu_sigma_beta: ", optimal_params[2])
 println("  shape_sigma_beta: ", optimal_params[3])
 println("  scale_sigma_beta: ", optimal_params[4])
+
+# Save the results
+JLD2.@save "data/partial_pooling/partial_pooling_optimize.jld2" optimal_params best_loss

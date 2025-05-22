@@ -1,4 +1,4 @@
-train_model = true
+train_model = false
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -13,7 +13,7 @@ FONTS = (
     italic="Fira Sans Italic",
     bold_italic="Fira Sans SemiBold Italic",
 )
-# using Flux
+
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
 rng = StableRNG(232705)
@@ -67,7 +67,7 @@ end
 
     # Neural network parameters
     nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
-  
+
     # distribution for the model error
     σ ~ InverseGamma(2, 3)
 
@@ -188,13 +188,6 @@ if tim_figures
         return mean((observed[valid_indices] .- predicted[valid_indices]) .^ 2)
     end
 
-    # Use the mean parameters from ADVI (nn_params, betas are already defined)
-    # # Data specific to the training subset used for the ADVI model
-    # current_train_cpeptide = train_data.cpeptide[indices_train,:]
-    # current_train_types = train_data.types[indices_train]
-    # current_models_train_subset = models_train[indices_train] # Renamed to avoid conflict if models_train is used differently below
-    # current_timepoints = train_data.timepoints
-
     # Using test data
     current_cpeptide = test_data.cpeptide
     current_types = test_data.types
@@ -214,7 +207,7 @@ if tim_figures
     ]
 
     # save MSE values
-    save("data/partial_pooling/mse.jld2", "objectives_current", objectives_current)
+    save("data/no_pooling/mse.jld2", "objectives_current", objectives_current)
 
     # Define markers for different types as used in 02-conditional.jl
     MARKERS = Dict(
@@ -669,8 +662,8 @@ if tim_figures
         ax1 = Axis(fig[1, 1],
             xlabel="exp(β)",
             ylabel="Density",
-            title="Posterior Distribution of exp(β)",
-            limits=(0, 5, nothing, nothing)  # Limit x-axis to 0-5
+            title="Posterior Distribution of exp(β)"
+            # limits=(0, 5, nothing, nothing)  # Limit x-axis to 0-5
         )
 
         # Plot overall density
@@ -706,9 +699,7 @@ if tim_figures
             type_indices = findall(t -> t == type_val, train_data.types[indices_train])
             type_betas = sampled_betas[type_indices, :]
             density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i+1], 0.5), label=type_val)
-        end
-
-        # Add vertical line for the mean
+        end        # Add vertical line for the mean
         mean_beta_raw = mean(sampled_betas)
         vlines!(ax2, mean_beta_raw, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
 
@@ -717,6 +708,138 @@ if tim_figures
         fig
     end
     save("figures/np/beta_posterior.$extension", beta_posterior_figure, px_per_unit=4)
+
+    #################### Euclidean Distance from Mean vs Error ####################
+    euclidean_distance_figure = let fig
+        fig = Figure(size=(800, 600))
+
+        # Calculate MSE for each subject (already done in objectives_current)
+        errors = objectives_current
+
+        # Get the physiological metrics
+        physiological_metrics = [
+            test_data.first_phase,
+            test_data.second_phase,
+            test_data.ages,
+            test_data.insulin_sensitivity,
+            test_data.body_weights,
+            test_data.bmis
+        ]
+
+        metric_names = [
+            "1ˢᵗ Phase Clamp",
+            "2ⁿᵈ Phase Clamp",
+            "Age [y]",
+            "Ins. Sens. Index",
+            "Body weight [kg]",
+            "BMI [kg/m²]"
+        ]
+
+        # Filter out subjects with Inf errors
+        valid_indices = .!isinf.(errors)
+        if !any(valid_indices)
+            @warn "No valid (non-Inf MSE) subjects found"
+            return fig
+        end
+
+        # Calculate the mean of each physiological metric
+        means = [mean(metric[valid_indices]) for metric in physiological_metrics]
+
+        # Calculate the standard deviation of each physiological metric for normalization
+        stds = [std(metric[valid_indices]) for metric in physiological_metrics]
+
+        # Calculate the Euclidean distance from the mean for each subject
+        euclidean_distances = zeros(length(errors[valid_indices]))
+
+        for i in eachindex(euclidean_distances)
+            # Get the subject index in the original array
+            subject_idx = findall(valid_indices)[i]
+
+            # Calculate normalized squared differences
+            squared_diffs = [
+                ((physiological_metrics[j][subject_idx] - means[j]) / stds[j])^2
+                for j in 1:length(physiological_metrics)
+            ]
+
+            # Euclidean distance is the square root of the sum of squared differences
+            euclidean_distances[i] = sqrt(sum(squared_diffs))
+        end
+
+        # Calculate correlation
+        correlation = corspearman(euclidean_distances, errors[valid_indices])
+
+        # Create the main plot
+        ax = Axis(fig[1, 1],
+            xlabel="Normalized Euclidean Distance from Mean",
+            ylabel="Mean Squared Error",
+            title="Correlation Between Physiological Distance and Model Error\nρ = $(round(correlation, digits=4))")
+
+        # Plot points by type
+        for (j, type_val) in enumerate(unique(current_types))
+            # Get indices for this type that also have valid errors
+            type_valid_mask = (current_types .== type_val) .& valid_indices
+
+            if any(type_valid_mask)
+                # Find the positions in the euclidean_distances array
+                type_indices_in_valid = findall(current_types[valid_indices] .== type_val)
+
+                scatter!(ax,
+                    euclidean_distances[type_indices_in_valid],
+                    errors[type_valid_mask],
+                    color=Makie.wong_colors()[j],
+                    label=type_val,
+                    marker=MARKERS[type_val],
+                    markersize=MARKERSIZES[type_val])
+            end
+        end
+
+        # Add a linear regression line
+        model_x = LinRange(minimum(euclidean_distances), maximum(euclidean_distances), 100)
+
+        # Simple linear regression coefficients
+        b = cov(euclidean_distances, errors[valid_indices]) / var(euclidean_distances)
+        a = mean(errors[valid_indices]) - b * mean(euclidean_distances)
+        model_y = a .+ b .* model_x
+
+        lines!(ax, model_x, model_y, color=:red, linestyle=:dash, linewidth=2)
+
+        # Add legend
+        legend_elements = [
+            MarkerElement(color=Makie.wong_colors()[1], marker=MARKERS["NGT"], markersize=MARKERSIZES["NGT"]),
+            MarkerElement(color=Makie.wong_colors()[2], marker=MARKERS["IGT"], markersize=MARKERSIZES["IGT"]),
+            MarkerElement(color=Makie.wong_colors()[3], marker=MARKERS["T2DM"], markersize=MARKERSIZES["T2DM"]),
+            LineElement(color=:red, linestyle=:dash, linewidth=2)
+        ]
+        legend_labels = ["NGT", "IGT", "T2DM", "Linear Fit"]
+        Legend(fig[1, 2], legend_elements, legend_labels)
+
+        # Add a histogram in the second row showing contribution of each metric
+        ga = GridLayout(fig[2, 1:2])
+        ax2 = Axis(ga[1, 1],
+            xlabel="Physiological Metric",
+            ylabel="Mean Absolute Z-Score",
+            title="Average Contribution to Distance")
+
+        # Calculate average absolute z-score for each metric
+        mean_abs_zscores = zeros(length(physiological_metrics))
+
+        for j in 1:length(physiological_metrics)
+            # Calculate z-scores for all valid subjects
+            zscores = abs.((physiological_metrics[j][valid_indices] .- means[j]) ./ stds[j])
+            mean_abs_zscores[j] = mean(zscores)
+        end
+
+        # Create barplot
+        barplot!(ax2, 1:length(metric_names), mean_abs_zscores,
+            color=[Makie.wong_colors()[i] for i in 1:length(metric_names)])
+
+        # Set x-ticks to metric names
+        ax2.xticks = (1:length(metric_names), metric_names)
+        ax2.xticklabelrotation = π / 4  # Rotate labels for better readability
+
+        fig
+    end
+    save("figures/np/euclidean_distance.$extension", euclidean_distance_figure, px_per_unit=4)
 
 end
 
