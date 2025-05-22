@@ -35,6 +35,11 @@
 - kwantificeer effect;
 - Start methode schrijven.
 
+- Add heatmap
+- Add eucledian distance, correlation dist. vs error and linear regression
+- Add multiple starting points and use validation data
+- Take mean or take tip of distribution?
+
 ## Week 6
 
 Max halverwege week op vakantie.

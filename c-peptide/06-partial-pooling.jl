@@ -1,4 +1,5 @@
-train_model = false
+######### settings ########
+train_model = true
 quick_train = false
 tim_figures = true
 extension = "png"
@@ -13,31 +14,24 @@ FONTS = (
     italic="Fira Sans Italic",
     bold_italic="Fira Sans SemiBold Italic",
 )
-# using Flux
+####### imports #######
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
 rng = StableRNG(232705)
 
 include("src/c-peptide-ude-models.jl")
 
+######### data ########
 # Load the data
 train_data, test_data = jldopen("data/ohashi.jld2") do file
     file["train"], file["test"]
 end
 
-# define the neural network
-chain = neural_network_model(2, 6)
-t2dm = train_data.types .== "T2DM" # we filter on T2DM to compute the parameters from van Cauter (which discriminate between t2dm and ngt)
-
-# create the models
-models_train = [
-    CPeptideCUDEModel(train_data.glucose[i, :], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i, :], t2dm[i]) for i in axes(train_data.glucose, 1)
-]
-
-init_params(models_train[1].chain)
-# # train on 70%, select on 30%
+# train on 70%, select on 30%
 indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
 
+
+##### model def. ######
 
 # Optimizable function: neural network parameters, contains
 #   RxInfer model: C-peptide model with partial pooling and known neural network parameters
@@ -64,13 +58,12 @@ end
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
         β[i] ~ Normal(μ_beta, σ_beta)
-        # β[i] ~ Normal(μ_beta, σ_beta)
+
     end
-    #β ~ MvNormal(ones(length(models)), 5.0 * I)
+
+    # Distribution for the neural network weights
     nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
-    # for i in 1:length(models)
-    #     β[i] ~ truncated(Normal(μ_beta, σ_beta), lower=0.0)
-    # end
+
 
     # distribution for the model error
     σ ~ InverseGamma(2, 3)
@@ -78,14 +71,12 @@ end
     for i in eachindex(models)
         prediction = predict(β[i], nn, models[i].problem, timepoints)
         data[i, :] ~ MvNormal(prediction, σ * I)
-        # for j in eachindex(prediction)
-        #     data[i,j] ~ Normal(prediction[j], σ)
-        # end
     end
 
     return nothing
 end
 
+# fixed nn-parameters
 @model function partial_pooled_test(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
@@ -96,11 +87,10 @@ end
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
         β[i] ~ Normal(μ_beta, σ_beta)
-        
+
     end
 
     nn = neural_network_parameters
-  
 
     # distribution for the model error
     σ ~ InverseGamma(2, 3)
@@ -113,12 +103,76 @@ end
     return nothing
 end
 
-turing_model = partial_pooled(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], init_params(models_train[1].chain));
+function calculate_mse(observed, predicted)
+    valid_indices = .!ismissing.(observed) .& .!ismissing.(predicted)
+    if !any(valid_indices)
+        return Inf # Or NaN, or handle as per your preference
+    end
+    return mean((observed[valid_indices] .- predicted[valid_indices]) .^ 2)
+end
+
+# define the neural network
+chain = neural_network_model(2, 6)
+t2dm = train_data.types .== "T2DM" # we filter on T2DM to compute the parameters from van Cauter (which discriminate between t2dm and ngt)
+
+# create the training (and validation) models
+models_train = [
+    CPeptideCUDEModel(train_data.glucose[i, :], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i, :], t2dm[i]) for i in axes(train_data.glucose, 1)
+]
+
+# init_params(models_train[1].chain) # why
+
 # create the models for the test data
 models_test = [
     CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
 ]
+
 if train_model
+#### validation of initial parameters ####
+    best_loss = Inf
+    n = 20
+    println("Evaluating $n initial parameter sets...")
+    for i=1:n
+        # create validation model
+        turing_model_validate = partial_pooled(train_data.cpeptide[indices_validation, :], train_data.timepoints, models_train[indices_validation], init_params(models_train[i].chain));
+        # instantiate ADVI with limited training iterations
+        advi = ADVI(3, 10)
+        advi_model_validate = vi(turing_model_validate, advi)
+        # Create bijector for
+        _, sym2range = bijector(turing_model_validate, Val(true))
+        # Sample parameters
+        z = rand(advi_model_validate, 10_000)
+        # Transform to useful format using bijector
+        sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
+        sampled_betas = z[union(sym2range[:β]...), :]
+        # take the mean of the samples
+        nn_params = mean(sampled_nn_params, dims=2)[:]
+        betas = mean(sampled_betas, dims=2)[:]
+        # make predictions using parameters
+        predictions_validate = [
+            predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i, idx) in enumerate(indices_validation)
+        ]
+        # calculate mse for each subject
+        objectives = [
+            calculate_mse(
+                train_data.cpeptide[idx, :],
+                predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints)
+            )
+            for (i, idx) in enumerate(indices_validation)
+        ]
+        mean_mse = mean(objectives)
+        # save the best
+        if best_loss > mean_mse
+            println("Current best loss: ", mean_mse)
+            println("Iteration ", i)
+            global best_loss = mean_mse
+            global initial_nn = nn_params
+        end
+    end
+    println("Final best loss:", best_loss)
+    # create training model with best initial nn-params
+    turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], initial_nn);
+
     # Train the model
     if quick_train
         # Smaller number of iterations for testing
@@ -130,16 +184,14 @@ if train_model
         advi_test_iterations = 5000
     end
     advi = ADVI(3, advi_iterations)
-    advi_model = vi(turing_model, advi)
-    _, sym2range = bijector(turing_model, Val(true))
+    advi_model = vi(turing_model_train, advi)
+    _, sym2range = bijector(turing_model_train, Val(true))
 
     z = rand(advi_model, 30_000)
     sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
     nn_params = mean(sampled_nn_params, dims=2)[:]
     sampled_betas = z[union(sym2range[:β]...), :] # sampled parameters
     betas = mean(sampled_betas, dims=2)[:]
-
-
 
     # fixed parameters for the test data
     turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
@@ -186,27 +238,14 @@ else
 
     predictions = JLD2.load("data/partial_pooling/predictions.jld2", "predictions")
     predictions_test = JLD2.load("data/partial_pooling/predictions_test.jld2", "predictions_test")
+
+    # fixed parameters for the test data
+    turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
 end
 
 
 ######################### Plotting #########################
 if tim_figures
-    # Helper function for MSE calculation
-    function calculate_mse(observed, predicted)
-        valid_indices = .!ismissing.(observed) .& .!ismissing.(predicted)
-        if !any(valid_indices)
-            return Inf # Or NaN, or handle as per your preference
-        end
-        return mean((observed[valid_indices] .- predicted[valid_indices]) .^ 2)
-    end
-
-    # Use the mean parameters from ADVI (nn_params, betas are already defined)
-    # # Data specific to the training subset used for the ADVI model
-    # current_train_cpeptide = train_data.cpeptide[indices_train,:]
-    # current_train_types = train_data.types[indices_train]
-    # current_models_train_subset = models_train[indices_train] # Renamed to avoid conflict if models_train is used differently below
-    # current_timepoints = train_data.timepoints
-
     # Using test data
     current_cpeptide = test_data.cpeptide
     current_types = test_data.types
@@ -302,15 +341,20 @@ if tim_figures
     save("figures/pp/model_fit.$extension", model_fit_figure, px_per_unit=4)
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
-    exp_betas = exp.(current_betas)
+    # exp_betas = exp.(current_betas)
+    exp_betas = current_betas
 
     correlation_figure = let fig
         fig = Figure(size=(1000, 400))
         ga = [GridLayout(fig[1, 1]), GridLayout(fig[1, 2]), GridLayout(fig[1, 3])]
 
-        # Calculate correlations that include both train and test data
-        exp_betas_train = exp.(betas)  # Training data betas
-        exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+        # Get data for both training and test
+        # exp_betas_train = exp.(betas)  # Training data betas
+        # exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+
+        # no exp
+        exp_betas_train = betas # Training data betas
+        exp_betas_test = current_betas  # Test data betas (betas_test
 
         correlation_first = corspearman([exp_betas_train; exp_betas_test],
             [train_data.first_phase[indices_train]; test_data.first_phase])
@@ -381,8 +425,13 @@ if tim_figures
         ga = [GridLayout(fig[1, 1]), GridLayout(fig[1, 2]), GridLayout(fig[1, 3])]
 
         # Get data for both training and test
-        exp_betas_train = exp.(betas)  # Training data betas
-        exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+        # Get data for both training and test
+        # exp_betas_train = exp.(betas)  # Training data betas
+        # exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+
+        # no exp
+        exp_betas_train = betas # Training data betas
+        exp_betas_test = current_betas  # Test data betas (betas_test
 
         # Calculate correlations that include both train and test data
         correlation_second = corspearman([exp_betas_train; exp_betas_test],
@@ -672,59 +721,62 @@ if tim_figures
         fig = Figure(size=(1600, 600))
 
         # Extract posterior samples for beta
-        _, sym2range = bijector(turing_model, Val(true))
+        _, sym2range = bijector(turing_model_train, Val(true))
         z = rand(advi_model, 100_000)
         sampled_betas = z[union(sym2range[:β]...), :] # sampled beta parameters
 
-        # Calculate density for exp(beta) which is more interpretable
-        exp_sampled_betas = exp.(sampled_betas)
+        _, sym2range_test = bijector(turing_model_test, Val(true))
+        z_test = rand(advi_model_test, 100_000)
+        sampled_betas_test = z_test[union(sym2range_test[:β]...), :] # sampled beta parameters
 
-        # First plot - exp(beta)
+
+        # First plot - training beta
         ax1 = Axis(fig[1, 1],
-            xlabel="exp(β)",
+            xlabel="β",
             ylabel="Density",
-            title="Posterior Distribution of exp(β)",
-            limits=(0, 5, nothing, nothing)  # Limit x-axis to 0-5
+            title="Posterior Distribution of β (training data)",
+            limits=(-10, 10, nothing, nothing)  # Limit x-axis to 0-5
         )
 
-        # Plot overall density
-        density!(ax1, vec(exp_sampled_betas), color=(Makie.wong_colors()[1], 0.3), label="Overall")
+        # # Plot overall density
+        # density!(ax1, vec(sampled_betas), color=(Makie.wong_colors()[1], 0.3), label="Overall")
 
         # Plot density by subject type
-        unique_types_in_train = unique(train_data.types[indices_train])
+        subject_types = unique(train_data.types[indices_train]) # doesnt matter test or train
 
-        for (i, type_val) in enumerate(unique_types_in_train)
+        for (i, type_val) in enumerate(subject_types)
             type_indices = findall(t -> t == type_val, train_data.types[indices_train])
             type_betas = sampled_betas[type_indices, :]
-            density!(ax1, vec(exp.(type_betas)), color=(Makie.wong_colors()[i+1], 0.5), label=type_val)
+            density!(ax1, vec(type_betas), color=(Makie.wong_colors()[i], 0.5), label=type_val)
         end
 
         # Add vertical line for the mean
-        mean_beta = mean(exp_sampled_betas)
+        mean_beta = mean(sampled_betas)
         vlines!(ax1, mean_beta, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
 
         Legend(fig[1, 2], ax1)
 
-        # Second plot - beta without transformation
+        # Second plot - beta test data
         ax2 = Axis(fig[1, 3],
             xlabel="β",
             ylabel="Density",
-            title="Posterior Distribution of β (without exp transform)"
+            title="Posterior Distribution of β (test data)",
+            limits=(-10, 10, nothing, nothing)
         )
 
-        # Plot overall density
-        density!(ax2, vec(sampled_betas), color=(Makie.wong_colors()[1], 0.3), label="Overall")
+        # # Plot overall density
+        # density!(ax2, vec(sampled_betas_test), color=(Makie.wong_colors()[1], 0.3), label="Overall")
 
         # Plot density by subject type
-        for (i, type_val) in enumerate(unique_types_in_train)
-            type_indices = findall(t -> t == type_val, train_data.types[indices_train])
-            type_betas = sampled_betas[type_indices, :]
-            density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i+1], 0.5), label=type_val)
+        for (i, type_val) in enumerate(subject_types)
+            type_indices = findall(t -> t == type_val, test_data.types)
+            type_betas = sampled_betas_test[type_indices, :]
+            density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i], 0.5), label=type_val)
         end
 
         # Add vertical line for the mean
-        mean_beta_raw = mean(sampled_betas)
-        vlines!(ax2, mean_beta_raw, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
+        mean_beta_test = mean(sampled_betas_test)
+        vlines!(ax2, mean_beta_test, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
 
         Legend(fig[1, 4], ax2)
 

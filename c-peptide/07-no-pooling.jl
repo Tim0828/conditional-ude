@@ -283,15 +283,20 @@ if tim_figures
     save("figures/np/model_fit.$extension", model_fit_figure, px_per_unit=4)
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
-    exp_betas = exp.(current_betas)
+    # exp_betas = exp.(current_betas)
+    exp_betas = current_betas # no exponent
 
     correlation_figure = let fig
         fig = Figure(size=(1000, 400))
         ga = [GridLayout(fig[1, 1]), GridLayout(fig[1, 2]), GridLayout(fig[1, 3])]
 
         # Calculate correlations that include both train and test data
-        exp_betas_train = exp.(betas)  # Training data betas
-        exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+        # exp_betas_train = exp.(betas)  # Training data betas
+        # exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+
+        # no exp
+        exp_betas_train = betas # Training data betas
+        exp_betas_test = current_betas  # Test data betas (betas_test)
 
         correlation_first = corspearman([exp_betas_train; exp_betas_test],
             [train_data.first_phase[indices_train]; test_data.first_phase])
@@ -362,8 +367,12 @@ if tim_figures
         ga = [GridLayout(fig[1, 1]), GridLayout(fig[1, 2]), GridLayout(fig[1, 3])]
 
         # Get data for both training and test
-        exp_betas_train = exp.(betas)  # Training data betas
-        exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+        # exp_betas_train = exp.(betas)  # Training data betas
+        # exp_betas_test = exp.(current_betas)  # Test data betas (betas_test)
+
+        # no exp
+        exp_betas_train = betas # Training data betas
+        exp_betas_test = current_betas  # Test data betas (betas_test)
 
         # Calculate correlations that include both train and test data
         correlation_second = corspearman([exp_betas_train; exp_betas_test],
@@ -663,7 +672,7 @@ if tim_figures
             xlabel="exp(β)",
             ylabel="Density",
             title="Posterior Distribution of exp(β)",
-            limits=(0, 10^5, nothing, nothing)  # Limit x-axis to 0-5
+            limits=(0, 5*10^4, nothing, nothing)  # Limit x-axis to 0-5
         )
 
         # Plot overall density
