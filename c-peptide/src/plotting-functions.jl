@@ -775,13 +775,50 @@ function zscore_correlation(test_data, objectives_current, current_types, folder
     save("figures/$folder/zscore_correlations.$extension", fig, px_per_unit=4)
 end
 
-function plot_validation_error(best_losses)
-    (i, losses) = losses
+function plot_validation_error(best_losses, folder)
+    i = best_losses[:,"iteration"]
+    losses = best_losses[:,"loss"]
     fig = Figure(size=(800, 400))
     ax = Axis(fig[1, 1],
         xlabel="Iteration",
         ylabel="Best loss",
         title="Best Validation error loss curve")
+    # Plot the error curve
+    lines!(ax, i, losses, linewidth=2, color=Makie.wong_colors()[1])
 
-    # to be continued...
+    # Add final loss value as annotation
+    final_loss = losses[end]
+    text!(ax, "Final loss: $(round(final_loss, digits=4))", 
+        position=(length(losses)*0.7, minimum(losses) + 0.8*(maximum(losses)-minimum(losses))),
+        fontsize=12)
+
+    # Save the figure
+    save("figures/$folder/validation_error.$extension", fig, px_per_unit=4)
+
+    return fig
+end
+
+function beta_posteriors(turing_model, advi_model, folder, samples=50_000)
+    z = rand(advi_model, samples)
+    _, sym2range = bijector(turing_model, Val(true))
+    sampled_betas = z[union(sym2range[:β]...), :] # sampled beta parameters
+
+    n = size(sampled_betas, 1)
+    cols = 4
+    rows = ceil(Int, n / cols)
+    fig = Figure(size=(cols * 200, rows * 200))
+    axs = Vector{Axis}(undef, n)
+
+    for column in eachcol(sampled_betas)
+        i = findfirst(x -> x == column, eachcol(sampled_betas))
+        ax = Axis(fig[div(i - 1, cols) + 1, mod1(i, cols)],
+            xlabel="β",
+            ylabel="Density",
+            title="Posterior Distribution of β Column $i",
+            limits=(-10, 10, nothing, nothing))
+        push!(axs, ax)  
+        # Plot the density of the sampled β
+        density!(ax, column, color=(Makie.wong_colors()[1], 0.5), label="Sampled β")
+    end
+    save("figures/$folder/beta_posteriors.$extension", fig, px_per_unit=4)
 end

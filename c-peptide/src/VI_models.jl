@@ -1,16 +1,15 @@
-using Bijectors: bijector
-
 function get_initial_parameters(train_data, indices_validation, models_train, n_samples)
     #### validation of initial parameters ####
     global best_loss = Inf
-    best_losses = []
+    # instantiate ADVI with limited training iterations
+    advi = ADVI(3, 0)
+    best_losses = DataFrame(iteration = Int[], loss = Float64[])
     println("Evaluating $n_samples initial parameter sets...")
     for i = 1:n_samples
         # create validation model
         j = indices_validation[1]
         turing_model_validate = partial_pooled(train_data.cpeptide[indices_validation, :], train_data.timepoints, models_train[indices_validation], init_params(models_train[j].chain))
-        # instantiate ADVI with limited training iterations
-        advi = ADVI(3, 0)
+        
         advi_model_validate = vi(turing_model_validate, advi)
         # Create bijector for
         _, sym2range = bijector(turing_model_validate, Val(true))
@@ -38,7 +37,7 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
             global best_loss = mean_mse
             global initial_nn = nn_params
             println("Current best loss: ", best_loss)
-            push!(best_losses, (i, best_loss))
+            push!(best_losses, (iteration = i, loss = mean_mse))
         end
     end
     println("Final best loss:", best_loss)

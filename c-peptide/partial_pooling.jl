@@ -1,16 +1,17 @@
-######### settings ########
-train_model = true
-quick_train = true
-figures = true
 ####### imports #######
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
-rng = StableRNG(232705)
 
 include("src/c_peptide_ude_models.jl")
 include("src/plotting-functions.jl")
 include("src/VI_models.jl")
 
+######### settings ########
+train_model = false
+quick_train = false
+figures = false
+
+rng = StableRNG(232705)
 ######### data ########
 # Load the data
 train_data, test_data = jldopen("data/ohashi.jld2") do file
@@ -45,16 +46,17 @@ if train_model
         # Larger number of iterations for full training
         advi_iterations = 3000
         advi_test_iterations = 6000
-        n_samples = 1000
+        n_samples = 200
     end
     # initial parameters
     initial_nn, best_losses = get_initial_parameters(train_data, indices_validation, models_train, n_samples)
+    plot_validation_error(best_losses, "partial_pooling")
 
     # initiate turing model
     turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :],
-                                        train_data.timepoints,
-                                        models_train[indices_train],
-                                        initial_nn)
+        train_data.timepoints,
+        models_train[indices_train],
+        initial_nn)
 
     # train conditional model
     println("Training on training data...")
@@ -66,7 +68,7 @@ if train_model
 
     # train the conditional parameters for the test data
     betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
-    
+
     # make predictions
     predictions = [
         ADVI_predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i, idx) in enumerate(indices_train)
@@ -99,6 +101,9 @@ else
     turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
     # training model
     turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
+
+    samples = 10_000
+    beta_posteriors(turing_model_test, advi_model_test,"partial_pooling", samples)
 end
 
 ######################### Plotting #########################
@@ -110,6 +115,8 @@ if figures
     current_betas = betas_test
     n_subjects = length(current_betas[:, 1])
     indices_test = 1:n_subjects
+
+
 
     # Calculate objectives (MSE) for the training subjects using mean parameters
     objectives_current = [

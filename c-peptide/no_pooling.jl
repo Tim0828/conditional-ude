@@ -1,6 +1,6 @@
 ######### settings ########
 train_model = true
-quick_train = true
+quick_train = false
 figures = true
 ####### imports #######
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
@@ -45,11 +45,12 @@ if train_model
         # Larger number of iterations for full training
         advi_iterations = 3000
         advi_test_iterations = 5000
-        n_samples = 1000
+        n_samples = 200
     end
 
     # initial parameters
     initial_nn, best_losses = get_initial_parameters(train_data, indices_validation, models_train, n_samples)
+    plot_validation_error(best_losses, "no_pooling")
 
     # Create initial model
     turing_model = no_pooling(train_data.cpeptide[indices_train, :],
