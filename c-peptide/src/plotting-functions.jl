@@ -772,7 +772,7 @@ function zscore_correlation(test_data, objectives_current, current_types, folder
     # Add a supertitle
     Label(fig[0, 1:3], "Correlation Between Z-Scores and Model Error",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
-    save("figures/np/zscore_correlations.$extension", fig, px_per_unit=4)
+    save("figures/$folder/zscore_correlations.$extension", fig, px_per_unit=4)
 end
 
 function plot_validation_error(best_losses)

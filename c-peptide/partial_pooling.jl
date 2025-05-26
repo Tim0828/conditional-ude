@@ -1,7 +1,6 @@
 ######### settings ########
 train_model = true
 quick_train = true
-tim_figures = true
 figures = true
 ####### imports #######
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
@@ -52,7 +51,10 @@ if train_model
     initial_nn, best_losses = get_initial_parameters(train_data, indices_validation, models_train, n_samples)
 
     # initiate turing model
-    turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], initial_nn)
+    turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :],
+                                        train_data.timepoints,
+                                        models_train[indices_train],
+                                        initial_nn)
 
     # train conditional model
     println("Training on training data...")
@@ -100,7 +102,7 @@ else
 end
 
 ######################### Plotting #########################
-if tim_figures
+if figures
     current_cpeptide = test_data.cpeptide
     current_types = test_data.types
     current_models_subset = models_test

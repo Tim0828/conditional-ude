@@ -134,6 +134,56 @@ end
     return nothing
 end
 
+@model function no_pooling(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
+    # In a no-pooling model, we don't have population-level parameters (μ_beta and σ_beta)
+    # Each beta is independent with its own prior
+
+    # distribution for the individual model parameters
+    β = Vector{T}(undef, length(models))
+    for i in eachindex(models)
+        # Each β gets its own independent prior
+        β[i] ~ Normal(0.0, 10.0)  # Wide prior since we're not pooling information
+    end
+
+    # Neural network parameters
+    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
+
+    # distribution for the model error
+    σ ~ InverseGamma(2, 3)
+
+    for i in eachindex(models)
+        prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
+        data[i, :] ~ MvNormal(prediction, σ * I)
+    end
+
+    return nothing
+end
+
+@model function no_pooling_test(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
+    # In a no-pooling model, we don't have population-level parameters (μ_beta and σ_beta)
+    # Each beta is independent with its own prior
+
+    # distribution for the individual model parameters
+    β = Vector{T}(undef, length(models))
+    for i in eachindex(models)
+        # Each β gets its own independent prior
+        β[i] ~ Normal(0.0, 10.0)  # Wide prior since we're not pooling information
+    end
+
+    # Neural network parameters
+    nn = neural_network_parameters
+
+    # distribution for the model error
+    σ ~ InverseGamma(2, 3)
+
+    for i in eachindex(models)
+        prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
+        data[i, :] ~ MvNormal(prediction, σ * I)
+    end
+
+    return nothing
+end
+
 function calculate_mse(observed, predicted)
     valid_indices = .!ismissing.(observed) .& .!ismissing.(predicted)
     if !any(valid_indices)
