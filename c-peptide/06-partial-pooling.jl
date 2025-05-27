@@ -1,6 +1,6 @@
 ######### settings ########
 train_model = true
-quick_train = true
+quick_train = false
 figures = true
 n_best = 5
 
@@ -54,6 +54,8 @@ if train_model
     result = get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best)
     initial_nn_sets = result.nn_params
 
+    # Train the n best initial neural network sets
+    println("Training ADVI models...")
     nn_params, betas, betas_test, advi_model,
     advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train,
         test_data, models_test, advi_iterations, advi_test_iterations)
@@ -62,8 +64,9 @@ if train_model
     println("Training betas on training data...")
     turing_model = partial_pooled_test(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
     betas, advi_model = train_ADVI(turing_model, advi_iterations, 10_000, 3, true)
+
+    # Save the model
     if quick_train == false
-        # Save the predictions
         save_model(folder)
     end
 
@@ -96,8 +99,6 @@ if figures
     current_betas = betas_test
     n_subjects = length(current_betas[:, 1])
     indices_test = 1:n_subjects
-
-
 
     # Calculate objectives (MSE) for the training subjects using mean parameters
     objectives_current = [
@@ -134,15 +135,16 @@ if figures
     error_correlation(test_data, current_types, objectives_current, folder)
 
     #################### Beta Posterior Plot ####################
+    # Overall beta posterior plot
     beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)
-
+    # Beta posterior plots for each subject
     samples = 10_000
     beta_posteriors(turing_model_test, advi_model_test, folder, samples)
 
-    #     #################### Euclidean Distance from Mean vs Error ####################
-    #     euclidean_distance(test_data, objectives_current, current_types, folder)
+    #################### Euclidean Distance from Mean vs Error ####################
+    euclidean_distance(test_data, objectives_current, current_types, folder)
 
-    #     #################### Z-Score vs Error Correlation ####################
-    #     zscore_correlation(test_data, objectives_current, current_types, folder)
-    #     println("All figures saved in figures/$folder")
+    #################### Z-Score vs Error Correlation ####################
+    zscore_correlation(test_data, objectives_current, current_types, folder)
+    println("All figures saved in figures/$folder")
 end

@@ -1,7 +1,8 @@
 ######### settings ########
-train_model = false
+train_model = true
 quick_train = false
-figures = false
+figures = true
+n_best = 5
 
 # choose folder
 folder = "no_pooling"
@@ -46,42 +47,26 @@ if train_model
     else
         # Larger number of iterations for full training
         advi_iterations = 3000
-        advi_test_iterations = 5000
-        n_samples = 200
+        advi_test_iterations = 6000
+        n_samples = 500
     end
 
     # initial parameters
-    initial_nn, best_losses = get_initial_parameters(train_data, indices_validation, models_train, n_samples)
-    plot_validation_error(best_losses, folder)
+    result = get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best)
+    initial_nn_sets = result.nn_params
 
-    # Create initial model
-    turing_model = no_pooling(train_data.cpeptide[indices_train, :],
-        train_data.timepoints,
-        models_train[indices_train],
-        initial_nn)
+    # Train the n best initial neural network sets
+    println("Training ADVI models...")
+    nn_params, betas, betas_test, advi_model,
+    advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train,
+        test_data, models_test, advi_iterations, advi_test_iterations)
 
-    # train conditional model
-    println("Training on training data...")
-    nn_params, betas, advi_model = train_ADVI(turing_model, advi_iterations)
-
-    # fixed parameters for the test data
-    println("Training betas on test data...")
-    turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
-
-    # train the conditional parameters for the test data
-    betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)    # make predictions
-
-    # make predictions
-    predictions = [
-        ADVI_predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i, idx) in enumerate(indices_train)
-    ]
-
-    indices_test = 1:length(models_test)
-
-    predictions_test = [
-        ADVI_predict(betas_test[i], nn_params, models_test[idx].problem, test_data.timepoints) for (i, idx) in enumerate(indices_test)
-    ]
-
+    # Train betas for training with fixed neural network parameters for consistency
+    println("Training betas on training data...")
+    turing_model = partial_pooled_test(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
+    betas, advi_model = train_ADVI(turing_model, advi_iterations, 10_000, 3, true)
+    	
+    # Save the model
     if quick_train == false
         save_model(folder)
     end
@@ -92,19 +77,17 @@ else
         advi_model_test,
         nn_params,
         betas,
-        betas_test,
-        predictions,
-        predictions_test
+        betas_test
     ) = load_model(folder)
-
+end
+    
+######################### Plotting #########################
+if figures
     # Create models for plotting (if needed)
     turing_model = no_pooling(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
     turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
-end
 
-
-######################### Plotting #########################
-if figures
+    println("Creating figures in figures/$folder...")
     current_cpeptide = test_data.cpeptide
     current_types = test_data.types
     current_models_subset = models_test
@@ -124,10 +107,6 @@ if figures
 
     # save MSE values
     save("data/$folder/mse.jld2", "objectives_current", objectives_current)
-
-    ##################### Beta Posterior ####################
-    samples = 10_000
-    beta_posteriors(turing_model_test, advi_model_test, folder, samples)
  
     #################### Model fit ####################
     model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)    
@@ -151,12 +130,17 @@ if figures
     error_correlation(test_data, current_types, objectives_current, folder)   
 
     #################### Beta Posterior Plot ####################
-    beta_posterior(turing_model, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)    
+    # Overall beta posterior plot
+    beta_posterior(turing_model, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)   
+    # Beta posterior plots for each subject
+    samples = 10_000
+    beta_posteriors(turing_model_test, advi_model_test, folder, samples)
 
     #################### Euclidean Distance from Mean vs Error ####################
     euclidean_distance(test_data, objectives_current, current_types, folder) 
 
     #################### Z-Score vs Error Correlation ####################
     zscore_correlation(test_data, objectives_current, current_types, folder)
+    println("All figures saved in figures/$folder")
 end
 
