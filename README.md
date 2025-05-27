@@ -40,20 +40,30 @@
 - Add multiple starting points and use validation data
 - Take mean or take tip of distribution?
 
-## Week 6
+## Week 6 (26 mei)
 
+Meeting inplannen met Shauna, oefen presentatie.
 Max halverwege week op vakantie.
 
 - Voorbereiding presentatie;
+    a) cUDE
+    b) VI
+    c) Preliminary results (verschil methodes)
+    d) outlook, wat ga ik nog doen
 - Varieer prior (varantie van beta);
 - Verzamel data;
 - Vizualiseer data voor presentatie.
 
-## Week 7
+- mode estimation (kan ook via histogram)
+- betas train opnieuw fitten na vastzetten nn-params
+- prior door MLE op een kleine subset is mogelijk tracktable, alleen means daarop initializeren. Variance wat hoger
+- methode cUDE staat onderaan.
+
+## Week 7 (2 juni)
 
 Max op vakantie.
 
-- BEP midway presentation;
+- BEP midway presentation 4 juni;
 - Feedback verzamelen en laatste weken herzien.
 
 ## Week 8
@@ -63,10 +73,12 @@ Max op vakantie.
 
 ## Week 9
 
+- Draft inleveren;
 - Discussie;
 - Conclusie;
 - Abstract.
 
 ## Week 10
 
-- Hand-in en finalization.
+- Feedback verwerken
+- Hand-in en finalization. 24 juni 12:00

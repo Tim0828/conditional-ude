@@ -1,16 +1,18 @@
 ######### settings ########
-train_model = true
+train_model = false
 quick_train = false
-figures = true
+figures = false
+
+# choose folder
+folder = "no_pooling"
 ####### imports #######
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
-rng = StableRNG(232705)
 
 include("src/c_peptide_ude_models.jl")
 include("src/plotting-functions.jl")
 include("src/VI_models.jl")
-
+rng = StableRNG(232705)
 ######### data ########
 # Load the data
 train_data, test_data = jldopen("data/ohashi.jld2") do file
@@ -50,7 +52,7 @@ if train_model
 
     # initial parameters
     initial_nn, best_losses = get_initial_parameters(train_data, indices_validation, models_train, n_samples)
-    plot_validation_error(best_losses, "no_pooling")
+    plot_validation_error(best_losses, folder)
 
     # Create initial model
     turing_model = no_pooling(train_data.cpeptide[indices_train, :],
@@ -68,7 +70,7 @@ if train_model
 
     # train the conditional parameters for the test data
     betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)    # make predictions
-    
+
     # make predictions
     predictions = [
         ADVI_predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints) for (i, idx) in enumerate(indices_train)
@@ -81,7 +83,7 @@ if train_model
     ]
 
     if quick_train == false
-        save_model("no_pooling")
+        save_model(folder)
     end
 
 else
@@ -93,7 +95,7 @@ else
         betas_test,
         predictions,
         predictions_test
-    ) = load_model("no_pooling")
+    ) = load_model(folder)
 
     # Create models for plotting (if needed)
     turing_model = no_pooling(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
@@ -121,19 +123,40 @@ if figures
     ]
 
     # save MSE values
-    save("data/no_pooling/mse.jld2", "objectives_current", objectives_current)
+    save("data/$folder/mse.jld2", "objectives_current", objectives_current)
 
-    # choose folder
-    folder = "no_pooling"    #################### Model fit ####################
-    model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)    #################### Correlation Plots ####################
-    correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder)    #################### Additional Correlation Plots ####################
-    additional_correlations(betas, current_betas, train_data, test_data, indices_train, folder)    ###################### Residual and QQ plots ######################
-    residualplot(test_data, nn_params, current_betas, models_test, folder)    ###################### MSE Violin Plot  ######################
-    mse_violin(objectives_current, current_types, folder)    #################### All Model Fits ####################
-    all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder)    #################### Correlation Between Error and Physiological Metrics ####################
-    error_correlation(test_data, current_types, objectives_current, folder)    #################### Beta Posterior Plot ####################
-    beta_posterior(turing_model, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)    #################### Euclidean Distance from Mean vs Error ####################
-    euclidean_distance(test_data, objectives_current, current_types, folder)    #################### Z-Score vs Error Correlation ####################
+    ##################### Beta Posterior ####################
+    samples = 10_000
+    beta_posteriors(turing_model_test, advi_model_test, folder, samples)
+ 
+    #################### Model fit ####################
+    model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)    
+
+    #################### Correlation Plots ####################
+    correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder)    
+
+    #################### Additional Correlation Plots ####################
+    additional_correlations(betas, current_betas, train_data, test_data, indices_train, folder) 
+
+    ###################### Residual and QQ plots ######################
+    residualplot(test_data, nn_params, current_betas, models_test, folder)   
+
+    ###################### MSE Violin Plot  ######################
+    mse_violin(objectives_current, current_types, folder)    
+
+    #################### All Model Fits ####################
+    all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder)    
+
+    #################### Correlation Between Error and Physiological Metrics ####################
+    error_correlation(test_data, current_types, objectives_current, folder)   
+
+    #################### Beta Posterior Plot ####################
+    beta_posterior(turing_model, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)    
+
+    #################### Euclidean Distance from Mean vs Error ####################
+    euclidean_distance(test_data, objectives_current, current_types, folder) 
+
+    #################### Z-Score vs Error Correlation ####################
     zscore_correlation(test_data, objectives_current, current_types, folder)
 end
 

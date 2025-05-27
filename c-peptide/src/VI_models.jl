@@ -1,15 +1,15 @@
-function get_initial_parameters(train_data, indices_validation, models_train, n_samples)
+function get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best=1)
     #### validation of initial parameters ####
-    global best_loss = Inf
     # instantiate ADVI with limited training iterations
     advi = ADVI(3, 0)
-    best_losses = DataFrame(iteration = Int[], loss = Float64[])
+    all_results = DataFrame(iteration=Int[], loss=Float64[], nn_params=Vector[])
     println("Evaluating $n_samples initial parameter sets...")
+    
     for i = 1:n_samples
         # create validation model
         j = indices_validation[1]
         turing_model_validate = partial_pooled(train_data.cpeptide[indices_validation, :], train_data.timepoints, models_train[indices_validation], init_params(models_train[j].chain))
-        
+
         advi_model_validate = vi(turing_model_validate, advi)
         # Create bijector for
         _, sym2range = bijector(turing_model_validate, Val(true))
@@ -18,9 +18,12 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
         # Transform to useful format using bijector
         sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
         sampled_betas = z[union(sym2range[:β]...), :]
-        # take the mean of the samples
-        nn_params = mean(sampled_nn_params, dims=2)[:]
-        betas = mean(sampled_betas, dims=2)[:]
+        # # Calculate mean parameters
+        # nn_params = mean(sampled_nn_params, dims=2)[:]
+        # betas = mean(sampled_betas, dims=2)[:]
+        # Calculate mode parameters
+        nn_params = [mode(sampled_nn_params[i, :]) for i in axes(sampled_nn_params, 1)]
+        betas = [mode(sampled_betas[i, :]) for i in axes(sampled_betas, 1)]
 
         # calculate mse for each subject
         objectives = [
@@ -31,18 +34,20 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
             for (i, idx) in enumerate(indices_validation)
         ]
         mean_mse = mean(objectives)
-        # save the best
-        println("Iteration ", i)
-        if best_loss > mean_mse
-            global best_loss = mean_mse
-            global initial_nn = nn_params
-            println("Current best loss: ", best_loss)
-            push!(best_losses, (iteration = i, loss = mean_mse))
-        end
+        
+        # store all results
+        push!(all_results, (iteration=i, loss=mean_mse, nn_params=copy(nn_params)))
+        println("Iteration $i, loss: $mean_mse")
     end
-    println("Final best loss:", best_loss)
-    # create training model with best initial nn-params
-    return initial_nn, best_losses
+    
+    # sort by loss and get n_best results
+    sort!(all_results, :loss)
+    best_results = first(all_results, n_best)
+
+    
+    println("Best $n_best losses: ", best_results.loss)
+    
+    return best_results
 end
 
 function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=3, test=false)
@@ -207,9 +212,7 @@ function load_model(folder)
         advi_model_test,
         nn_params,
         betas,
-        betas_test,
-        predictions,
-        predictions_test
+        betas_test
     )
 end
 
@@ -219,6 +222,60 @@ function save_model(folder)
     save("data/$folder/nn_params.jld2", "nn_params", nn_params)
     save("data/$folder/betas.jld2", "betas", betas)
     save("data/$folder/betas_test.jld2", "betas_test", betas_test)
-    save("data/$folder/predictions.jld2", "predictions", predictions)
-    save("data/$folder/predictions_test.jld2", "predictions_test", predictions_test)
+end
+
+function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+    training_results = DataFrame(nn_params=Vector[], betas_test=Vector[], betas=Vector[], loss=Float64[], j=Int[])
+    advi_models = []
+    advi_models_test = []
+
+    for (j, initial_nn) in enumerate(initial_nn_sets)
+        # initiate turing model
+        local turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :],
+            train_data.timepoints,
+            models_train[indices_train],
+            initial_nn)
+
+        # train conditional model
+        println("Training on training data...")
+        local nn_params, betas, advi_model = train_ADVI(turing_model_train, advi_iterations)
+
+        # fixed parameters for the test data
+        println("Training betas on test data...")
+        local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
+
+        # train the conditional parameters for the test data
+        local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+
+        # Evaluate on test data
+        local objectives_current = [
+            calculate_mse(
+                test_data.cpeptide[i, :],
+                ADVI_predict(betas_test[i], nn_params, models_test[i].problem, test_data.timepoints)
+            )
+            for i in eachindex(betas_test)
+        ]
+
+
+        mean_objective = mean(objectives_current)
+        println("Mean MSE for current model: $mean_objective")
+        model_plus_loss = ()
+        # Store the results
+        push!(training_results, (nn_params=copy(nn_params), betas_test=copy(betas_test), betas=copy(betas), loss=mean_objective, j=j))
+        push!(advi_models, advi_model)
+        push!(advi_models_test, advi_model_test)
+    end
+
+    # Sort the results by loss and take the best n
+    sort!(training_results, :loss)
+    best_result = first(training_results, 1)
+    nn_params = best_result.nn_params[1]
+    betas_test = best_result.betas_test[1]
+    betas = best_result.betas[1]
+    advi_model = advi_models[best_result.j[1]]
+    advi_model_test = advi_models_test[best_result.j[1]]
+    println("Best loss: ", best_result.loss)
+
+    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
+
 end

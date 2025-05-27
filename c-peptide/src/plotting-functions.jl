@@ -807,18 +807,21 @@ function beta_posteriors(turing_model, advi_model, folder, samples=50_000)
     cols = 4
     rows = ceil(Int, n / cols)
     fig = Figure(size=(cols * 200, rows * 200))
-    axs = Vector{Axis}(undef, n)
 
-    for column in eachcol(sampled_betas)
-        i = findfirst(x -> x == column, eachcol(sampled_betas))
-        ax = Axis(fig[div(i - 1, cols) + 1, mod1(i, cols)],
+    for (i, beta_row) in enumerate(eachrow(sampled_betas))
+        row_idx = div(i - 1, cols) + 1
+        col_idx = mod1(i, cols)
+        
+        ax = Axis(fig[row_idx, col_idx],
             xlabel="β",
             ylabel="Density",
-            title="Posterior Distribution of β Column $i",
+            title="Subject $i",
             limits=(-10, 10, nothing, nothing))
-        push!(axs, ax)  
+        
         # Plot the density of the sampled β
-        density!(ax, column, color=(Makie.wong_colors()[1], 0.5), label="Sampled β")
+        density!(ax, beta_row, color=(Makie.wong_colors()[1], 0.5), label="Sampled β")
     end
-    save("figures/$folder/beta_posteriors.$extension", fig, px_per_unit=4)
+    Label(fig[0, 1:cols], "Posterior Distributions of β Parameters",
+        fontsize=16, font=:bold, padding=(0, 0, 20, 0))
+    save("figures/$folder/beta_i_posteriors.$extension", fig, px_per_unit=4)
 end
