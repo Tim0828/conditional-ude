@@ -37,7 +37,7 @@
 
 - Add heatmap
 - Add eucledian distance, correlation dist. vs error and linear regression
-- Add multiple starting points and use validation data
+- Add multiple starting points and use validation data (x)
 - Take mean or take tip of distribution?
 
 ## Week 6 (26 mei)
@@ -54,8 +54,8 @@ Max halverwege week op vakantie.
 - Verzamel data;
 - Vizualiseer data voor presentatie.
 
-- mode estimation (kan ook via histogram)
-- betas train opnieuw fitten na vastzetten nn-params
+- mode estimation (kan ook via histogram) (x)
+- betas train opnieuw fitten na vastzetten nn-params (x)
 - prior door MLE op een kleine subset is mogelijk tracktable, alleen means daarop initializeren. Variance wat hoger
 - methode cUDE staat onderaan.
 
