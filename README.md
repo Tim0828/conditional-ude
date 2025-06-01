@@ -58,6 +58,7 @@ Max halverwege week op vakantie.
 - betas train opnieuw fitten na vastzetten nn-params (x)
 - prior door MLE op een kleine subset is mogelijk tracktable, alleen means daarop initializeren. Variance wat hoger
 - methode cUDE staat onderaan.
+- KL min, KL median, KL max?
 
 ## Week 7 (2 juni)
 

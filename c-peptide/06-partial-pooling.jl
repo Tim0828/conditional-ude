@@ -2,10 +2,11 @@
 train_model = true
 quick_train = false
 figures = true
-n_best = 5
+n_best = 1
+dataset = "2"
 
 # choose folder
-folder = "partial_pooling"
+folder = "partial_pooling$dataset"
 ####### imports #######
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
@@ -16,12 +17,12 @@ include("src/VI_models.jl")
 rng = StableRNG(232705)
 ######### data ########
 # Load the data
-train_data, test_data = jldopen("data/ohashi.jld2") do file
+train_data, test_data = jldopen("data/ohashi$dataset.jld2") do file
     file["train"], file["test"]
 end
 
 # train on 75%, select on 25%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.75)
+indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
 
 # define the neural network
 chain = neural_network_model(2, 6)
@@ -47,8 +48,8 @@ if train_model
     else
         # Larger number of iterations for full training
         advi_iterations = 3000
-        advi_test_iterations = 6000
-        n_samples = 500
+        advi_test_iterations = 4000
+        n_samples = 200
     end
     # initial parameters
     result = get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best)
@@ -60,7 +61,7 @@ if train_model
     advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train,
         test_data, models_test, advi_iterations, advi_test_iterations)
 
-    # Train betas for training with fixed neural network parameters for consistency
+    # Train betas for training with fixed neural network parameters too for consistency
     println("Training betas on training data...")
     turing_model = partial_pooled_test(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
     betas, advi_model = train_ADVI(turing_model, advi_iterations, 10_000, 3, true)
@@ -69,7 +70,6 @@ if train_model
     if quick_train == false
         save_model(folder)
     end
-
 
 else
     println("Loading model from $folder...")
@@ -111,7 +111,6 @@ if figures
 
     # save MSE values
     save("data/$folder/mse.jld2", "objectives_current", objectives_current)
-
 
     #################### Model fit  ####################
     model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)
