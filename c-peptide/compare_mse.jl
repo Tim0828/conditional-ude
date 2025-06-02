@@ -7,7 +7,7 @@ using HypothesisTests
 using Distributions
 
 # Load MSE
-mse_MLE = JLD2.load("data/mle/mse.jld2")
+mse_MLE = JLD2.load("data/MLE/mse.jld2")
 mse_partial_pooling = JLD2.load("data/partial_pooling/mse.jld2")
 mse_no_pooling = JLD2.load("data/no_pooling/mse.jld2")
 
@@ -178,6 +178,118 @@ end
 # Create a combined heatmap
 p_all = create_p_value_heatmap(p_values_df)
 save("figures/p_values_heatmap_all.png", p_all)
+
+# Create a violin plot comparing all three methods grouped by subject type
+function create_combined_mse_violin()
+    fig = Figure(size=(1000, 600))
+    
+    # Define colors for each method
+    method_colors = Dict(
+        "MLE" => Makie.wong_colors()[1],
+        "partial_pooling" => Makie.wong_colors()[2], 
+        "no_pooling" => Makie.wong_colors()[3]
+    )
+    
+    # Collect all MSE data into a structured format
+    mse_data = DataFrame(
+        mse=Float64[],
+        method=String[],
+        type=String[]
+    )
+    
+    # Add MLE data
+    for (i, type) in enumerate(unique(test_data.types))
+        type_indices = test_data.types .== type
+        type_mse = mse_MLE[type_indices]
+        for mse_val in type_mse
+            push!(mse_data, (mse=mse_val, method="MLE", type=type))
+        end
+    end
+    
+    # Add partial pooling data
+    for (i, type) in enumerate(unique(test_data.types))
+        type_indices = test_data.types .== type
+        type_mse = mse_partial_pooling[type_indices]
+        for mse_val in type_mse
+            push!(mse_data, (mse=mse_val, method="partial_pooling", type=type))
+        end
+    end
+    
+    # Add no pooling data
+    for (i, type) in enumerate(unique(test_data.types))
+        type_indices = test_data.types .== type
+        type_mse = mse_no_pooling[type_indices]
+        for mse_val in type_mse
+            push!(mse_data, (mse=mse_val, method="no_pooling", type=type))
+        end
+    end
+    
+    # Create the plot
+    ax = Axis(fig[1, 1],
+        xlabel="Patient Type",
+        ylabel="Mean Squared Error",
+        title="MSE Comparison Across Methods by Patient Type")
+    
+    unique_types = ["NGT", "IGT", "T2DM"]
+    method_order = ["MLE", "partial_pooling", "no_pooling"]
+    
+    jitter_width = 0.08
+    violin_width = 0.25
+    
+    # Plot for each type and method combination
+    for (type_idx, type) in enumerate(unique_types)
+        for (method_idx, method) in enumerate(method_order)
+            # Get data for this type and method
+            subset_data = filter(row -> row.type == type && row.method == method, mse_data)
+            
+            if !isempty(subset_data)
+                mse_values = subset_data.mse
+                
+                # Calculate x-position: center each type, then offset for methods
+                x_center = type_idx
+                x_offset = (method_idx - 2) * 0.3  # -0.3, 0, 0.3 for three methods
+                x_pos = x_center + x_offset
+                
+                # Plot violin
+                violin!(ax, fill(x_pos, length(mse_values)), mse_values,
+                    color=(method_colors[method], 0.6),
+                    width=violin_width,
+                    strokewidth=1, side=:right)
+                
+                # Add jittered scatter points
+                scatter_offset = -0.07
+                jitter = scatter_offset .+ (rand(length(mse_values)) .- 0.5) .* jitter_width
+                scatter!(ax, fill(x_pos, length(mse_values)) .+ jitter, mse_values,
+                    color=(method_colors[method], 0.8),
+                    markersize=3)
+                
+                # Add mean marker
+                median_val = mean(mse_values)
+                scatter!(ax, [x_pos], [median_val],
+                    color=:black,
+                    markersize=8,
+                    marker=:diamond)
+            end
+        end
+    end
+    
+    # Set x-axis ticks and labels
+    ax.xticks = (1:length(unique_types), unique_types)
+    
+    # Create legend
+    legend_elements = [
+        [PolyElement(color=(method_colors[method], 0.6)) for method in method_order]...,
+        MarkerElement(color=:black, marker=:diamond, markersize=8)
+    ]
+    legend_labels = ["MLE", "Partial Pooling", "No Pooling", "Mean"]
+    Legend(fig[1, 2], legend_elements, legend_labels, "Method")
+    
+    return fig
+end
+
+# Create and save the combined violin plot
+combined_violin_fig = create_combined_mse_violin()
+save("figures/combined_mse_violin.png", combined_violin_fig)
 
 
 

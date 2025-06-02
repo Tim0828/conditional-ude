@@ -1,9 +1,9 @@
 ######### settings ########
-train_model = true
+train_model = false
 quick_train = false
 figures = true
 n_best = 1
-dataset = "2"
+dataset = ""
 
 # choose folder
 folder = "partial_pooling$dataset"
@@ -22,7 +22,7 @@ train_data, test_data = jldopen("data/ohashi$dataset.jld2") do file
 end
 
 # train on 75%, select on 25%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+indices_train, indices_validation = stratified_split(rng, train_data.types, 0.75)
 
 # define the neural network
 chain = neural_network_model(2, 6)
@@ -117,9 +117,6 @@ if figures
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
     correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder)
-
-    #################### Additional Correlation Plots (adapted from 02-conditional.jl) ####################
-    additional_correlations(betas, current_betas, train_data, test_data, indices_train, folder)
 
     ###################### Residual and QQ plots ######################
     residualplot(test_data, nn_params, betas, current_models_subset, folder)

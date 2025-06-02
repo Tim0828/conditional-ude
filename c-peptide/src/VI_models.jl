@@ -204,9 +204,6 @@ function load_model(folder)
     betas = JLD2.load("data/$folder/betas.jld2", "betas")
     betas_test = JLD2.load("data/$folder/betas_test.jld2", "betas_test")
 
-    predictions = JLD2.load("data/$folder/predictions.jld2", "predictions")
-    predictions_test = JLD2.load("data/$folder/predictions_test.jld2", "predictions_test")
-
     return (
         advi_model,
         advi_model_test,

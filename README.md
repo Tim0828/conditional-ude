@@ -53,6 +53,8 @@ Max halverwege week op vakantie.
 - Varieer prior (varantie van beta);
 - Verzamel data;
 - Vizualiseer data voor presentatie.
+- Feedback verwerken introductie
+- Methode afmaken
 
 - mode estimation (kan ook via histogram) (x)
 - betas train opnieuw fitten na vastzetten nn-params (x)

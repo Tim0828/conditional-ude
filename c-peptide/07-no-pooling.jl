@@ -1,8 +1,8 @@
 ######### settings ########
-train_model = true
+train_model = false
 quick_train = false
 figures = true
-n_best = 5
+n_best = 2
 
 # choose folder
 folder = "no_pooling"
@@ -64,7 +64,7 @@ if train_model
     # Train betas for training with fixed neural network parameters for consistency
     println("Training betas on training data...")
     turing_model = partial_pooled_test(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
-    betas, advi_model = train_ADVI(turing_model, advi_iterations, 10_000, 3, true)
+    betas, advi_model = train_ADVI(turing_model, advi_test_iterations, 10_000, 3, true)
     	
     # Save the model
     if quick_train == false
@@ -109,13 +109,9 @@ if figures
     save("data/$folder/mse.jld2", "objectives_current", objectives_current)
  
     #################### Model fit ####################
-    model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)    
-
+    model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder) 
     #################### Correlation Plots ####################
     correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder)    
-
-    #################### Additional Correlation Plots ####################
-    additional_correlations(betas, current_betas, train_data, test_data, indices_train, folder) 
 
     ###################### Residual and QQ plots ######################
     residualplot(test_data, nn_params, current_betas, models_test, folder)   

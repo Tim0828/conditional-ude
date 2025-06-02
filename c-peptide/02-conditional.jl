@@ -17,9 +17,12 @@ FONTS = (
 
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing
 
+folder = "MLE"
+
 rng = StableRNG(232705)
 
-include("src/c-peptide-ude-models.jl")
+include("src/c_peptide_ude_models.jl")
+include("src/plotting-functions.jl")
 
 # Load the data
 train_data, test_data = jldopen("data/ohashi.jld2") do file
@@ -97,197 +100,18 @@ function argmedian(x)
 end
 
 # save mse
-jldopen("data/mle/mse.jld2", "w") do file
+jldopen("data/MLE/mse.jld2", "w") do file
     file["train"] = objectives_train
     file["test"] = objectives_test
 end
 
-if tim_figures
+if figures
     #################### Model fit ####################
-
-    model_fit_figure = let fig
-        fig = Figure(size = (1000, 400))
-        ga = [GridLayout(fig[1,1], ), GridLayout(fig[1,2], ), GridLayout(fig[1,3], )]
-        
-        # Add a supertitle above all subplots
-        Label(fig[0, 1:3], "Median C-peptide Model Fit Across Subject Types", 
-              fontsize = 16, font = :bold, padding = (0, 0, 20, 0))
-        
-        # Do the simulations
-        sol_timepoints = test_data.timepoints[1]:0.1:test_data.timepoints[end]
-        sols = [Array(solve(model.problem, p=ComponentArray(ode=[betas_test[i]], neural=neural_network_parameters), saveat=sol_timepoints, save_idxs=1)) for (i, model) in enumerate(models_test)]
-        
-        axs = [Axis(ga[i][1,1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i,type) in enumerate(unique(test_data.types))]
-
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            c_peptide_data = test_data.cpeptide[type_indices,:]
-            
-            # Find the median fit of the type
-            sol_idx = findfirst(objectives_test[type_indices] .== median(objectives_test[type_indices]))
-            sol_type = sols[type_indices][sol_idx]
-
-            lines!(axs[i], sol_timepoints, sol_type[:, 1], color=Makie.wong_colors()[i+1], linewidth=1.5, label="Model fit")
-            scatter!(axs[i], test_data.timepoints, c_peptide_data[sol_idx, :], color=Makie.wong_colors()[i+2], markersize=5, label="Data")
-        end
-
-        # linkyaxes!(axs...)
-        Legend(fig[2,1:3], axs[1], orientation=:horizontal)
-        
-        fig
-    end
-
-    save("figures/c/model_fit.$extension", model_fit_figure, px_per_unit=4)
-
+    model_fit(test_data.types, test_data.timepoints, models_test, betas_test, neural_network_parameters, folder)
 
     ############### Correlation Plots ###############
-    exp_betas_train = exp.(betas_train)
-    exp_betas_test = exp.(betas_test)
 
-    correlation_figure = let fig
-        fig = Figure(size = (1000, 400))
-        ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
-        
-        # Calculate correlations
-        # correlation_first = corspearman([betas_train; betas_test], [train_data.first_phase; test_data.first_phase])
-        # correlation_age = corspearman([betas_train; betas_test], [train_data.ages; test_data.ages])
-        # correlation_isi = corspearman([betas_train; betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
-
-        correlation_first = corspearman([exp_betas_train; exp_betas_test], [train_data.first_phase; test_data.first_phase])
-        correlation_age = corspearman([exp_betas_train; exp_betas_test], [train_data.ages; test_data.ages])
-        correlation_isi = corspearman([exp_betas_train; exp_betas_test], [train_data.insulin_sensitivity; test_data.insulin_sensitivity])
-        
-        # Define markers for different types
-        MARKERS = Dict(
-            "NGT" => '●',
-            "IGT" => '▴',
-            "T2DM" => '■'
-        )
-        
-        MARKERSIZES = Dict(
-            "NGT" => 6,
-            "IGT" => 10,
-            "T2DM" => 6
-        )
-        
-        # First phase correlation
-        ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="1ˢᵗ Phase Clamp", 
-                   title="ρ = $(round(correlation_first, digits=4))")
-        
-        scatter!(ax1, exp_betas_train, train_data.first_phase, color=(Makie.wong_colors()[1], 0.2),
-                 markersize=10, label="Train Data", marker='⋆')
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax1, exp_betas_test[type_indices], test_data.first_phase[type_indices], 
-                     color=Makie.wong_colors()[i+1], label="Test $type", marker=MARKERS[type], 
-                     markersize=MARKERSIZES[type])
-        end
-        
-        # Age correlation
-        ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Age [y]", 
-                   title="ρ = $(round(correlation_age, digits=4))")
-        
-        scatter!(ax2, exp_betas_train, train_data.ages, color=(Makie.wong_colors()[1], 0.2),
-                 markersize=10, label="Train", marker='⋆')
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax2, exp_betas_test[type_indices], test_data.ages[type_indices], 
-                     color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type],
-                     markersize=MARKERSIZES[type])
-        end
-        
-        # Insulin sensitivity correlation
-        ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="Ins. Sens. Index", 
-                  title="ρ = $(round(correlation_isi, digits=4))")
-        
-        scatter!(ax3, exp_betas_train, train_data.insulin_sensitivity, color=(Makie.wong_colors()[1], 0.2),
-                 markersize=10, label="Train", marker='⋆')
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax3, exp_betas_test[type_indices], test_data.insulin_sensitivity[type_indices], 
-                color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type],
-                     markersize=MARKERSIZES[type])
-        end
-        
-        Legend(fig[2,1:3], ax1, orientation=:horizontal)
-        
-        fig
-    end
-
-    save("figures/c/correlations.$extension", correlation_figure, px_per_unit=4)
-
-    # Additional correlations
-    additional_correlation_figure = let fig
-        fig = Figure(size = (1000, 400))
-        ga = [GridLayout(fig[1,1]), GridLayout(fig[1,2]), GridLayout(fig[1,3])]
-        
-        # Calculate correlations
-        # correlation_second = corspearman([betas_train; betas_test], [train_data.second_phase; test_data.second_phase])
-        # correlation_bw = corspearman([betas_train; betas_test], [train_data.body_weights; test_data.body_weights])
-        # correlation_bmi = corspearman([betas_train; betas_test], [train_data.bmis; test_data.bmis])
-
-        correlation_second = corspearman([exp_betas_train; exp_betas_test], [train_data.second_phase; test_data.second_phase])
-        correlation_bw = corspearman([exp_betas_train; exp_betas_test], [train_data.body_weights; test_data.body_weights])
-        correlation_bmi = corspearman([exp_betas_train; exp_betas_test], [train_data.bmis; test_data.bmis])
-        
-        # Define markers for different types
-        MARKERS = Dict(
-            "NGT" => '●',
-            "IGT" => '▴',
-            "T2DM" => '■'
-        )
-        
-        MARKERSIZES = Dict(
-            "NGT" => 6,
-            "IGT" => 10,
-            "T2DM" => 6
-        )
-        
-        # Second phase correlation
-        ax1 = Axis(ga[1][1,1], xlabel="exp(βᵢ)", ylabel="2ⁿᵈ Phase Clamp", 
-                   title="ρ = $(round(correlation_second, digits=4))")
-        
-        scatter!(ax1, exp_betas_train, train_data.second_phase, color=(Makie.wong_colors()[1], 0.2), 
-                 markersize=10, label="Train Data", marker='⋆')
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax1, exp_betas_test[type_indices], test_data.second_phase[type_indices], 
-                     color=Makie.wong_colors()[i+1], label="Test $type", marker=MARKERS[type], 
-                     markersize=MARKERSIZES[type])
-        end
-        
-        # Body weight correlation
-        ax2 = Axis(ga[2][1,1], xlabel="exp(βᵢ)", ylabel="Body weight [kg]", 
-                   title="ρ = $(round(correlation_bw, digits=4))")
-        
-        scatter!(ax2, exp_betas_train, train_data.body_weights, color=(Makie.wong_colors()[1], 0.2), 
-                 markersize=10, label="Train", marker='⋆')
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax2, exp_betas_test[type_indices], test_data.body_weights[type_indices], 
-                     color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type], 
-                     markersize=MARKERSIZES[type])
-        end
-        
-        # BMI correlation
-        ax3 = Axis(ga[3][1,1], xlabel="exp(βᵢ)", ylabel="BMI [kg/m²]", 
-                  title="ρ = $(round(correlation_bmi, digits=4))")
-        
-        scatter!(ax3, exp_betas_train, train_data.bmis, color=(Makie.wong_colors()[1], 0.2), 
-                 markersize=10, label="Train", marker='⋆')
-        for (i,type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            scatter!(ax3, exp_betas_test[type_indices], test_data.bmis[type_indices], 
-                     color=Makie.wong_colors()[i+1], label=type, marker=MARKERS[type], 
-                     markersize=MARKERSIZES[type])
-        end
-        
-        Legend(fig[2,1:3], ax1, orientation=:horizontal)
-        
-        fig
-    end
-
-    save("figures/c/additional_correlations.$extension", additional_correlation_figure, px_per_unit=4)
+    correlation_figure(betas_train[indices_train], betas_test, train_data, test_data, indices_train, folder)
     
     # Create residual and QQ plots
     residual_qq_figure = let fig
@@ -314,7 +138,7 @@ if tim_figures
                       xlabel="Predicted C-peptide [nmol/L]", 
                       ylabel="Residuals [nmol/L]",
                       title="Residual Plot")
-        
+        ylims!(ax_res, -2,4)
         # Gather all predicted values for plotting
         all_predictions = []
         for i in 1:length(models_test)
@@ -323,10 +147,10 @@ if tim_figures
         
         # Scatter plot of residuals vs predicted values
         scatter!(ax_res, all_predictions, all_residuals, 
-                 color=Makie.wong_colors()[1], markersize=4, alpha=0.6)
+                color=Makie.wong_colors()[1], markersize=6)
         
         # Add a horizontal line at y=0
-        hlines!(ax_res, [0], color=Makie.wong_colors()[2], linestyle=:dash, linewidth=1.5)
+        hlines!(ax_res, [0], color=Makie.wong_colors()[3], linestyle=:dash)
         
         # QQ Plot
         ax_qq = Axis(ga[2][1,1], 
@@ -353,53 +177,10 @@ if tim_figures
         fig
     end
 
-    save("figures/c/residual_qq_plot.$extension", residual_qq_figure, px_per_unit=4)
+    save("figures/$folder/residual_qq_plot.$extension", residual_qq_figure, px_per_unit=4)
 
-    # Violin-scatter plot of MSE by group
-    mse_violin_figure = let fig
-        fig = Figure(size = (700, 500))
-        ax = Axis(fig[1,1], 
-                  xticks=([1,2,3], ["NGT", "IGT", "T2DM"]), 
-                  xlabel="Type", 
-                  ylabel="Mean Squared Error",
-                  title="Model Fit Quality by Group")
-        
-        jitter_width = 0.1
-        offset = -0.1
-        
-        # For each type
-        for (i, type) in enumerate(unique(test_data.types))
-            # Get the MSE values for this type
-            type_indices = test_data.types .== type
-            type_mse = objectives_test[type_indices]
-            
-            # Create horizontal jitter for the scatter points
-            jitter = offset .+ (rand(length(type_mse)) .- 0.5) .* jitter_width
-            
-            # Plot the violin on the right side
-            violin!(ax, fill(i, length(type_mse)), type_mse, 
-                    color=(Makie.wong_colors()[i+1], 0.5), side=:right,
-                    label=type)
-            
-            # Add scatter points with jitter
-            scatter!(ax, fill(i, length(type_mse)) .+ jitter, type_mse,
-                     color=Makie.wong_colors()[i+1], markersize=6, alpha=0.6)
-            
-            # Add a marker for the median
-            scatter!(ax, [i], [median(type_mse)],
-                     color=Makie.wong_colors()[end], markersize=10, marker=:diamond)
-        end
-        
-        # Add a legend
-        Legend(fig[1,2], [
-            MarkerElement(color=Makie.wong_colors()[2], marker=:circle, markersize=8),
-            MarkerElement(color=Makie.wong_colors()[end], marker=:diamond, markersize=10)
-        ], ["Individual MSE", "Group Median"], "Legend")
-        
-        fig
-    end
 
-    save("figures/c/mse_violin.$extension", mse_violin_figure, px_per_unit=4)
+    mse_violin(objectives_test, test_data.types, folder)
 
     # Create a plot of model fits for individual subjects
     individual_fits_figure = let fig
@@ -455,77 +236,13 @@ if tim_figures
         fig
     end
 
-    save("figures/c/individual_fits.$extension", individual_fits_figure, px_per_unit=4)
+    save("figures/$folder/individual_fits.$extension", individual_fits_figure, px_per_unit=4)
+    
 
-    # Create a figure to correlate MSE with physiological metrics
-    mse_correlation_figure = let fig
-        fig = Figure(size = (1200, 800))
-        
-        # Define the physiological metrics to correlate with MSE
-        metrics = [
-            (test_data.first_phase, "1ˢᵗ Phase Clamp"),
-            (test_data.second_phase, "2ⁿᵈ Phase Clamp"),
-            (test_data.ages, "Age [y]"),
-            (test_data.insulin_sensitivity, "Ins. Sens. Index"),
-            (test_data.body_weights, "Body weight [kg]"),
-            (test_data.bmis, "BMI [kg/m²]")
-        ]
-        
-        # Calculate layout
-        n_cols = 3
-        n_rows = ceil(Int, length(metrics) / n_cols)
-        
-        # Create axes for each correlation
-        axes = []
-        
-        for (i, (metric, label)) in enumerate(metrics)
-            row = div(i-1, n_cols) + 1
-            col = mod(i-1, n_cols) + 1
-            
-            # Calculate correlation
-            correlation = corspearman(objectives_test, metric)
-            
-            # Create axis
-            ax = Axis(fig[row, col], 
-                     xlabel="Mean Squared Error", 
-                     ylabel=label,
-                     title="ρ = $(round(correlation, digits=4))")
-            push!(axes, ax)
-            
-            # Define markers for different types
-            MARKERS = Dict(
-                "NGT" => '●',
-                "IGT" => '▴',
-                "T2DM" => '■'
-            )
-            
-            MARKERSIZES = Dict(
-                "NGT" => 6,
-                "IGT" => 10,
-                "T2DM" => 6
-            )
-            
-            # Plot the data points for each type
-            for (j, type) in enumerate(unique(test_data.types))
-                type_indices = test_data.types .== type
-                scatter!(ax, 
-                        objectives_test[type_indices], 
-                        metric[type_indices],
-                        color=Makie.wong_colors()[j+1], 
-                        marker=MARKERS[type],
-                        markersize=MARKERSIZES[type],
-                        label=type)
-            end
-            
-        end
-        
-        # Add a single legend for all plots
-        Legend(fig[n_rows+1, :], axes[1], orientation=:horizontal, merge=true)
-        
-        fig
-    end
-
-    save("figures/c/mse_correlations.$extension", mse_correlation_figure, px_per_unit=4)
+    error_correlation(test_data, test_data.types, objectives_test, folder)
+    euclidean_distance(test_data, objectives_test, test_data.types, folder)
+    zscore_correlation(test_data, objectives_test, test_data.types, folder)
+    
 end
 
 if MANUSCRIPT_FIGURES

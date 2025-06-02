@@ -26,77 +26,61 @@ FONTS = (
 
 function model_fit(types, timepoints, models, betas, nn_params, folder)
     fig = Figure(size=(1000, 400))
-    unique_types = unique(types)
-    ga = [GridLayout(fig[1, i]) for i in 1:length(unique_types)]
-
+    
+    # Define the specific subjects to plot
+    subjects_to_plot = [1, 13, 33]
+    
     # Add a supertitle above all subplots
-    Label(fig[0, 1:3], "Median C-peptide Model Fit Across Subject Types",
+    Label(fig[0, 1:3], "C-peptide Model Fit for Selected Subjects. Method $folder",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
 
     sol_timepoints = timepoints[1]:0.1:timepoints[end]
 
-    # Pre-calculate all solutions for the current training subset
-    sols_current = [
-        Array(solve(models[i].problem, p=ComponentArray(ode=[betas[i]], neural=nn_params), saveat=sol_timepoints, save_idxs=1))
-        for i in 1:n_subjects
-    ]
+    # Create axes for the three subjects
+    axs = [Axis(fig[1, i], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", 
+                title="Subject $(subjects_to_plot[i]) ($(types[subjects_to_plot[i]]))") 
+           for i in 1:3]
 
-    axs = [Axis(ga[i][1, 1], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", title=type) for (i, type) in enumerate(unique_types)]
+    for (i, subject_idx) in enumerate(subjects_to_plot)
+        # Calculate model solution
+        sol = Array(solve(models[subject_idx].problem, 
+                         p=ComponentArray(ode=[betas[subject_idx]], neural=nn_params), 
+                         saveat=sol_timepoints, save_idxs=1))
 
-    for (i, type) in enumerate(unique_types)
-        type_indices_local = findall(tt -> tt == type, types) # Indices within the current_train_types/betas/sols_current_train
-
-        c_peptide_data_type = current_cpeptide[type_indices_local, :]
-        objectives_type = objectives_current[type_indices_local]
-
-        # Filter out Inf MSEs before finding median
-        valid_objectives_type = filter(!isinf, objectives_type)
-        if isempty(valid_objectives_type)
-            println("Warning: No valid (non-Inf MSE) subjects found for type $type in model_fit_figure_tim. Skipping this type.")
-            continue
-        end
-        median_objective = median(valid_objectives_type)
-
-        # Find index corresponding to median objective
-        sol_idx_in_type_indices = findfirst(obj -> obj == median_objective, objectives_type)
-
-        if isnothing(sol_idx_in_type_indices)
-            println("Warning: Could not find subject with median MSE for type $type. Taking first valid subject.")
-            sol_idx_in_type_indices = findfirst(!isinf, objectives_type)
-            if isnothing(sol_idx_in_type_indices)
-                continue # Skip if still no valid subject
-            end
-        end
-
-        original_subject_idx = type_indices_local[sol_idx_in_type_indices]
-
-        sol_to_plot = sols_current[original_subject_idx]
-
-        lines!(axs[i], sol_timepoints, sol_to_plot[:, 1], color=Makie.wong_colors()[1], linewidth=1.5, label="Model fit")
-        scatter!(axs[i], timepoints, current_cpeptide[original_subject_idx, :], color=Makie.wong_colors()[2], markersize=5, label="Data")
+        # Plot model fit
+        lines!(axs[i], sol_timepoints, sol[:, 1], color=Makie.wong_colors()[1], linewidth=1.5, label="Model fit")
+        
+        # Plot observed data
+        scatter!(axs[i], timepoints, current_cpeptide[subject_idx, :], color=Makie.wong_colors()[2], markersize=5, label="Data")
     end
 
-    if length(axs) > 0
-        Legend(fig[2, 1:length(axs)], axs[1], orientation=:horizontal)
-    end
-    fig
+    Legend(fig[2, 1:3], axs[1], orientation=:horizontal)
     save("figures/$folder/model_fit.$extension", fig, px_per_unit=4)
 end
 
 function correlation_figure(training_β, test_β, train_data, test_data, indices_train, folder)
-    fig = Figure(size=(1000, 400))
-    ga = [GridLayout(fig[1, 1]), GridLayout(fig[1, 2]), GridLayout(fig[1, 3])]
+    fig = Figure(size=(1200, 800))
+    
 
-    # Calculate spearman correlation
+    # Add a supertitle above all subplots
+    Label(fig[0, 1:3], "Correlation Between β and Physiological Metrics",
+        fontsize=16, font=:bold, padding=(0, 0, 20, 0))
+
     correlation_first = corspearman([training_β; test_β],
         [train_data.first_phase[indices_train]; test_data.first_phase])
     correlation_age = corspearman([training_β; test_β],
         [train_data.ages[indices_train]; test_data.ages])
     correlation_isi = corspearman([training_β; test_β],
         [train_data.insulin_sensitivity[indices_train]; test_data.insulin_sensitivity])
+    correlation_second = corspearman([training_β; test_β],
+        [train_data.second_phase[indices_train]; test_data.second_phase])
+    correlation_bw = corspearman([training_β; test_β],
+        [train_data.body_weights[indices_train]; test_data.body_weights])
+    correlation_bmi = corspearman([training_β; test_β],
+        [train_data.bmis[indices_train]; test_data.bmis])
 
     # First phase correlation
-    ax1 = Axis(ga[1][1, 1], xlabel="βᵢ", ylabel="1ˢᵗ Phase Clamp",
+    ax1 = Axis(fig[1, 1], xlabel="βᵢ", ylabel="1ˢᵗ Phase Clamp",
         title="ρ = $(round(correlation_first, digits=4))")
 
     # Plot training data
@@ -113,7 +97,7 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
     end
 
     # Age correlation
-    ax2 = Axis(ga[2][1, 1], xlabel="βᵢ", ylabel="Age [y]",
+    ax2 = Axis(fig[1, 2], xlabel="βᵢ", ylabel="Age [y]",
         title="ρ = $(round(correlation_age, digits=4))")
 
     # Plot training data
@@ -130,7 +114,7 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
     end
 
     # Insulin sensitivity correlation
-    ax3 = Axis(ga[3][1, 1], xlabel="βᵢ", ylabel="Ins. Sens. Index",
+    ax3 = Axis(fig[1, 3], xlabel="βᵢ", ylabel="Ins. Sens. Index",
         title="ρ = $(round(correlation_isi, digits=4))")
 
     # Plot training data
@@ -146,76 +130,59 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
             marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
     end
 
-    Legend(fig[2, 1:3], ax1, orientation=:horizontal)
-    save("figures/$folder/correlations.$extension", fig, px_per_unit=4)
-end
-
-function additional_correlations(training_β, test_β, train_data, test_data, indices_train, folder)
-    fig = Figure(size=(1000, 400))
-    ga = [GridLayout(fig[1, 1]), GridLayout(fig[1, 2]), GridLayout(fig[1, 3])]
-
-    # Calculate correlations that include both train and test data
-    correlation_second = corspearman([training_β; test_β],
-        [train_data.second_phase[indices_train]; test_data.second_phase])
-    correlation_bw = corspearman([training_β; test_β],
-        [train_data.body_weights[indices_train]; test_data.body_weights])
-    correlation_bmi = corspearman([training_β; test_β],
-        [train_data.bmis[indices_train]; test_data.bmis])
-
     # Second phase correlation
-    ax1 = Axis(ga[1][1, 1], xlabel="βᵢ", ylabel="2ⁿᵈ Phase Clamp",
+    ax4 = Axis(fig[2, 1], xlabel="βᵢ", ylabel="2ⁿᵈ Phase Clamp",
         title="ρ = $(round(correlation_second, digits=4))")
 
     # Plot training data
-    scatter!(ax1, training_β, train_data.second_phase[indices_train],
+    scatter!(ax4, training_β, train_data.second_phase[indices_train],
         color=(Makie.wong_colors()[1], 0.2), markersize=10,
         label="Train Data", marker='⋆')
 
     # Plot test data by type
     for (j, type_val) in enumerate(unique(current_types))
         type_mask = current_types .== type_val
-        scatter!(ax1, test_β[type_mask], test_data.second_phase[type_mask],
+        scatter!(ax4, test_β[type_mask], test_data.second_phase[type_mask],
             color=Makie.wong_colors()[j+1], label="Test $type_val",
             marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
     end
 
     # Body weight correlation
-    ax2 = Axis(ga[2][1, 1], xlabel="βᵢ", ylabel="Body weight [kg]",
+    ax5 = Axis(fig[2, 2], xlabel="βᵢ", ylabel="Body weight [kg]",
         title="ρ = $(round(correlation_bw, digits=4))")
 
     # Plot training data
-    scatter!(ax2, training_β, train_data.body_weights[indices_train],
+    scatter!(ax5, training_β, train_data.body_weights[indices_train],
         color=(Makie.wong_colors()[1], 0.2), markersize=10,
         label="Train Data", marker='⋆')
 
     # Plot test data by type
     for (j, type_val) in enumerate(unique(current_types))
         type_mask = current_types .== type_val
-        scatter!(ax2, test_β[type_mask], test_data.body_weights[type_mask],
+        scatter!(ax5, test_β[type_mask], test_data.body_weights[type_mask],
             color=Makie.wong_colors()[j+1], label=type_val,
             marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
     end
 
     # BMI correlation
-    ax3 = Axis(ga[3][1, 1], xlabel="βᵢ", ylabel="BMI [kg/m²]",
+    ax6 = Axis(fig[2, 3], xlabel="βᵢ", ylabel="BMI [kg/m²]",
         title="ρ = $(round(correlation_bmi, digits=4))")
 
     # Plot training data
-    scatter!(ax3, training_β, train_data.bmis[indices_train],
+    scatter!(ax6, training_β, train_data.bmis[indices_train],
         color=(Makie.wong_colors()[1], 0.2), markersize=10,
         label="Train Data", marker='⋆')
 
     # Plot test data by type
     for (j, type_val) in enumerate(unique(current_types))
         type_mask = current_types .== type_val
-        scatter!(ax3, test_β[type_mask], test_data.bmis[type_mask],
+        scatter!(ax6, test_β[type_mask], test_data.bmis[type_mask],
             color=Makie.wong_colors()[j+1], label=type_val,
             marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
     end
 
-    Legend(fig[2, 1:3], ax1, orientation=:horizontal)
-
-    save("figures/$folder/additional_correlations.$extension", fig, px_per_unit=4)
+    Legend(fig[3, 1:3], ax1, orientation=:horizontal)
+    save("figures/$folder/correlations.$extension", fig, px_per_unit=4)
 end
 
 function residualplot(data, nn_params, betas, models, folder)
@@ -243,6 +210,7 @@ function residualplot(data, nn_params, betas, models, folder)
     # Plot residuals vs fitted
     scatter!(ax[1], all_fitted, all_residuals, color=Makie.wong_colors()[1], markersize=6)
     hlines!(ax[1], 0, color=Makie.wong_colors()[3], linestyle=:dash)
+    ylims!(ax[1], -2, 4)
 
     # QQ-plot of residuals
     sorted_residuals = sort(all_residuals)
