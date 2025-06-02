@@ -86,7 +86,7 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
-    μ_beta ~ Normal(0.0, 5.0)
+    μ_beta ~ Normal(-2.0, 4.0)
     σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters

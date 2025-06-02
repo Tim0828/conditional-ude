@@ -40,7 +40,7 @@ indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
 
 # train the models or load the trained model neural network parameters
 if train_model
-    optsols_train = train(models_train[indices_train], train_data.timepoints, train_data.cpeptide[indices_train, :], rng, initial_guesses=500, selected_initials=3)
+    optsols_train = train(models_train[indices_train], train_data.timepoints, train_data.cpeptide[indices_train, :], rng, initial_guesses=25_000, selected_initials=3)
 
     neural_network_parameters = [optsol.u.neural[:] for optsol in optsols_train]
     betas = [optsol.u.ode[:] for optsol in optsols_train]
