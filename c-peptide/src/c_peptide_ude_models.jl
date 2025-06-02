@@ -609,8 +609,8 @@ function train(models::AbstractVector{CPeptideCUDEModel}, timepoints::AbstractVe
     lhs_lower_bound::V = -2.0,
     lhs_upper_bound::V = 0.0,
     n_conditional_parameters::Int = 1,
-    number_of_iterations_adam::Int = 1000,
-    number_of_iterations_lbfgs::Int = 1000,
+    number_of_iterations_adam::Int = 3000,
+    number_of_iterations_lbfgs::Int = 3000,
     learning_rate_adam::Real = 1e-2) where T <: Real where V <: Real
 
     # sample initial parameters

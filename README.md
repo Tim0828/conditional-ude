@@ -64,12 +64,38 @@ Max halverwege week op vakantie.
 
 ## Week 7 (2 juni)
 
-Max op vakantie.
+Max op vakantie. Meeting met Shauna.
 
 - BEP midway presentation 4 juni;
 - Feedback verzamelen en laatste weken herzien.
 
-## Week 8
+### BEP to-do-list June, 2th
+
+#### Midterm presentation
+
+- Less results in slides;
+- red box where you want them to look;
+- Rewrite cheat sheet:
+  - clearly explain project goal;
+  - drop extensive model explanation.
+
+#### Coding
+
+- train MLE with the same parameters as PP and NP;
+- What if the dataset is smaller;
+- Estimate priors on smaller subset.
+
+#### Meetings
+
+- Plan new BEP-meetings;
+- Q2Max: Look at glucose values for extreme patients;
+- Q2Max: Extreme data-split (maximum KL-divergence) or non-stratisfied split
+
+#### Report
+
+- Add training method to methods.
+
+## Week 8 (9 juni)
 
 - Verwerk feedback, verfijn;
 - Schrijf resultaten.

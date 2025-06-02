@@ -51,7 +51,7 @@ function model_fit(types, timepoints, models, betas, nn_params, folder)
         lines!(axs[i], sol_timepoints, sol[:, 1], color=Makie.wong_colors()[1], linewidth=1.5, label="Model fit")
         
         # Plot observed data
-        scatter!(axs[i], timepoints, current_cpeptide[subject_idx, :], color=Makie.wong_colors()[2], markersize=5, label="Data")
+        scatter!(axs[i], timepoints, test_data.cpeptide[subject_idx, :], color=Makie.wong_colors()[2], markersize=5, label="Data")
     end
 
     Legend(fig[2, 1:3], axs[1], orientation=:horizontal)
@@ -89,8 +89,8 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
         label="Train Data", marker='⋆')
 
     # Plot test data by type
-    for (j, type_val) in enumerate(unique(current_types))
-        type_mask = current_types .== type_val
+    for (j, type_val) in enumerate(unique(test_data.types))
+        type_mask = test_data.types .== type_val
         scatter!(ax1, test_β[type_mask], test_data.first_phase[type_mask],
             color=Makie.wong_colors()[j+1], label="Test $type_val",
             marker=MARKERS[type_val], markersize=MARKERSIZES[type_val])
@@ -105,6 +105,7 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
         color=(Makie.wong_colors()[1], 0.2), markersize=10,
         label="Train Data", marker='⋆')
 
+    current_types = test_data.types
     # Plot test data by type
     for (j, type_val) in enumerate(unique(current_types))
         type_mask = current_types .== type_val
@@ -416,7 +417,9 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
     for (i, type_val) in enumerate(subject_types)
         type_indices = findall(t -> t == type_val, train_data.types[indices_train])
         type_betas = sampled_betas[type_indices, :]
-        density!(ax1, vec(type_betas), color=(Makie.wong_colors()[i], 0.5), label=type_val)
+        density!(ax1, vec(type_betas),color=(Makie.wong_colors()[i], 0.6),
+                strokecolor=Makie.wong_colors()[i],
+                strokewidth=2, label=type_val)
     end
 
     # Add vertical line for the mean
@@ -440,7 +443,9 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
     for (i, type_val) in enumerate(subject_types)
         type_indices = findall(t -> t == type_val, test_data.types)
         type_betas = sampled_betas_test[type_indices, :]
-        density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i], 0.5), label=type_val)
+        density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i], 0.6),
+                strokecolor=Makie.wong_colors()[i],
+                strokewidth=2, label=type_val)
     end
 
     # Add vertical line for the mean
