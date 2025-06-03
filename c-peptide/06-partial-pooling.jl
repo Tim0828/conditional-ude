@@ -1,8 +1,8 @@
 ######### settings ########
-train_model = false
+train_model = true
 quick_train = false
 figures = true
-n_best = 1
+n_best = 3
 dataset = ""
 
 # choose folder
@@ -21,8 +21,8 @@ train_data, test_data = jldopen("data/ohashi$dataset.jld2") do file
     file["train"], file["test"]
 end
 
-# train on 75%, select on 25%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.75)
+# train on 70%, select on 30%
+indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
 
 # define the neural network
 chain = neural_network_model(2, 6)
@@ -44,12 +44,12 @@ if train_model
         # Smaller number of iterations for testing
         advi_iterations = 1
         advi_test_iterations = 1
-        n_samples = 5
+        n_samples = 10
     else
         # Larger number of iterations for full training
         advi_iterations = 3000
         advi_test_iterations = 4000
-        n_samples = 200
+        n_samples = 25_000
     end
     # initial parameters
     result = get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best)

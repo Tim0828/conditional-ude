@@ -1,29 +1,38 @@
 function get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best=1)
     #### validation of initial parameters ####
-    # instantiate ADVI with limited training iterations
-    advi = ADVI(3, 0)
     all_results = DataFrame(iteration=Int[], loss=Float64[], nn_params=Vector[])
     println("Evaluating $n_samples initial parameter sets...")
-    
-    for i = 1:n_samples
-        # create validation model
-        j = indices_validation[1]
-        turing_model_validate = partial_pooled(train_data.cpeptide[indices_validation, :], train_data.timepoints, models_train[indices_validation], init_params(models_train[j].chain))
 
-        advi_model_validate = vi(turing_model_validate, advi)
-        # Create bijector for
-        _, sym2range = bijector(turing_model_validate, Val(true))
-        # Sample parameters
-        z = rand(advi_model_validate, 10_000)
-        # Transform to useful format using bijector
-        sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
-        sampled_betas = z[union(sym2range[:β]...), :]
-        # # Calculate mean parameters
-        # nn_params = mean(sampled_nn_params, dims=2)[:]
-        # betas = mean(sampled_betas, dims=2)[:]
-        # Calculate mode parameters
-        nn_params = [mode(sampled_nn_params[i, :]) for i in axes(sampled_nn_params, 1)]
-        betas = [mode(sampled_betas[i, :]) for i in axes(sampled_betas, 1)]
+    prog = Progress(n_samples; dt=0.01, desc="Evaluating initial parameter samples... ", showspeed=true, color=:firebrick)
+    for i = 1:n_samples
+
+        j = indices_validation[1]
+        validation_models = models_train[indices_validation]
+        # initiate nn-params
+        nn_params = init_params(models_train[j].chain)
+
+        # Sample betas from a normal distribution
+        μ_beta_dist = Normal(-2.0, 5.0)
+        betas = Vector{Float64}(undef, length(validation_models))
+        for i in eachindex(validation_models)
+            betas[i] = rand(μ_beta_dist)
+        end
+
+
+        # turing_model_validate = partial_pooled(train_data.cpeptide[indices_validation, :], train_data.timepoints, models_train[indices_validation], init_params(models_train[j].chain))
+
+        # advi_model_validate = vi(turing_model_validate, advi)
+        # # Create bijector for
+        # _, sym2range = bijector(turing_model_validate, Val(true))
+        # # Sample parameters
+        # z = rand(advi_model_validate, 10_000)
+        # # Transform to useful format using bijector
+        # sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
+        # sampled_betas = z[union(sym2range[:β]...), :]
+
+        # # Calculate mode parameters
+        # nn_params = [mode(sampled_nn_params[i, :]) for i in axes(sampled_nn_params, 1)]
+        # betas = [mode(sampled_betas[i, :]) for i in axes(sampled_betas, 1)]
 
         # calculate mse for each subject
         objectives = [
@@ -37,7 +46,7 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
         
         # store all results
         push!(all_results, (iteration=i, loss=mean_mse, nn_params=copy(nn_params)))
-        println("Iteration $i, loss: $mean_mse")
+        next!(prog)
     end
     
     # sort by loss and get n_best results
@@ -86,7 +95,7 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
-    μ_beta ~ Normal(-2.0, 4.0)
+    μ_beta ~ Normal(-2.0, 5.0)
     σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters
@@ -226,6 +235,8 @@ function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_tr
     advi_models = []
     advi_models_test = []
 
+    # Add progress bar
+    prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
     for (j, initial_nn) in enumerate(initial_nn_sets)
         # initiate turing model
         local turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :],
@@ -261,6 +272,7 @@ function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_tr
         push!(training_results, (nn_params=copy(nn_params), betas_test=copy(betas_test), betas=copy(betas), loss=mean_objective, j=j))
         push!(advi_models, advi_model)
         push!(advi_models_test, advi_model_test)
+        next!(prog)
     end
 
     # Sort the results by loss and take the best n

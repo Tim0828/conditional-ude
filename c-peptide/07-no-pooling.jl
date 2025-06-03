@@ -1,8 +1,8 @@
 ######### settings ########
-train_model = false
+train_model = true
 quick_train = false
 figures = true
-n_best = 2
+n_best = 3
 
 # choose folder
 folder = "no_pooling"
@@ -47,8 +47,8 @@ if train_model
     else
         # Larger number of iterations for full training
         advi_iterations = 3000
-        advi_test_iterations = 6000
-        n_samples = 500
+        advi_test_iterations = 4000
+        n_samples = 25_000
     end
 
     # initial parameters
