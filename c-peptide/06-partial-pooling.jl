@@ -58,8 +58,7 @@ if train_model
     # Train the n best initial neural network sets
     println("Training ADVI models...")
     nn_params, betas, betas_test, advi_model,
-    advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train,
-        test_data, models_test, advi_iterations, advi_test_iterations)
+    advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
 
     # Train betas for training with fixed neural network parameters too for consistency
     println("Training betas on training data...")

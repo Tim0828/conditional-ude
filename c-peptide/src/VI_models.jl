@@ -18,22 +18,6 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
             betas[i] = rand(μ_beta_dist)
         end
 
-
-        # turing_model_validate = partial_pooled(train_data.cpeptide[indices_validation, :], train_data.timepoints, models_train[indices_validation], init_params(models_train[j].chain))
-
-        # advi_model_validate = vi(turing_model_validate, advi)
-        # # Create bijector for
-        # _, sym2range = bijector(turing_model_validate, Val(true))
-        # # Sample parameters
-        # z = rand(advi_model_validate, 10_000)
-        # # Transform to useful format using bijector
-        # sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
-        # sampled_betas = z[union(sym2range[:β]...), :]
-
-        # # Calculate mode parameters
-        # nn_params = [mode(sampled_nn_params[i, :]) for i in axes(sampled_nn_params, 1)]
-        # betas = [mode(sampled_betas[i, :]) for i in axes(sampled_betas, 1)]
-
         # calculate mse for each subject
         objectives = [
             calculate_mse(
