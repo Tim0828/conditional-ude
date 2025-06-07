@@ -2,6 +2,7 @@
 train_model = true
 figures = true
 folder = "MLE"
+dataset = "ohashi_rich"
 extension = "png"
 pt = 4/3
 
@@ -23,7 +24,7 @@ include("src/c_peptide_ude_models.jl")
 include("src/plotting-functions.jl")
 
 # Load the data
-train_data, test_data = jldopen("data/ohashi.jld2") do file
+train_data, test_data = jldopen("data/$dataset.jld2") do file
     file["train"], file["test"]
 end
 
@@ -36,7 +37,7 @@ models_train = [
     CPeptideCUDEModel(train_data.glucose[i,:], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i,:], t2dm[i]) for i in axes(train_data.glucose, 1)
 ]
 # train on 70%, select on 30%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+indices_train, indices_validation = stratified_split(rng, train_data.types, 0.5)
 
 # train the models or load the trained model neural network parameters
 if train_model
@@ -55,7 +56,7 @@ if train_model
     neural_network_parameters = best_model.u.neural[:]
 
     # save the best model
-    jldopen("data/$folder/cude_neural_parameters.jld2", "w") do file
+    jldopen("data/$folder/cude_neural_parameters$dataset.jld2", "w") do file
         file["width"] = 6
         file["depth"] = 2
         file["parameters"] = neural_network_parameters
@@ -65,7 +66,7 @@ if train_model
 else
 
     neural_network_parameters, betas, best_model_index = try
-        jldopen("data/$folder/cude_neural_parameters.jld2") do file
+        jldopen("data/$folder/cude_neural_parameters$dataset.jld2") do file
             file["parameters"], file["betas"], file["best_model_index"]
         end
     catch
@@ -96,18 +97,19 @@ function argmedian(x)
 end
 
 # save mse
-jldopen("data/MLE/mse.jld2", "w") do file
+jldopen("data/MLE/mse_$dataset.jld2", "w") do file
     file["train"] = objectives_train
     file["test"] = objectives_test
 end
 
 if figures
     #################### Model fit ####################
-    model_fit(test_data.types, test_data.timepoints, models_test, betas_test, neural_network_parameters, folder)
+    # no need, do model comparison later
+    # model_fit(test_data.types, test_data.timepoints, models_test, betas_test, neural_network_parameters, folder)
 
     ############### Correlation Plots ###############
     betas_train_train = betas_train[indices_train]
-    correlation_figure(betas_train_train, betas_test, train_data, test_data, indices_train, folder)
+    correlation_figure(betas_train_train, betas_test, train_data, test_data, indices_train, folder, dataset)
     
     # Create residual and QQ plots
     residual_qq_figure = let fig
@@ -173,10 +175,10 @@ if figures
         fig
     end
 
-    save("figures/$folder/residual_qq_plot.$extension", residual_qq_figure, px_per_unit=4)
+    save("figures/$folder/residual_qq_plot_$dataset.$extension", residual_qq_figure, px_per_unit=4)
 
 
-    mse_violin(objectives_test, test_data.types, folder)
+    mse_violin(objectives_test, test_data.types, folder, dataset)
 
     # Create a plot of model fits for individual subjects
     individual_fits_figure = let fig
@@ -232,12 +234,12 @@ if figures
         fig
     end
 
-    save("figures/$folder/individual_fits.$extension", individual_fits_figure, px_per_unit=4)
+    save("figures/$folder/individual_fits_$dataset.$extension", individual_fits_figure, px_per_unit=4)
     
 
-    error_correlation(test_data, test_data.types, objectives_test, folder)
-    euclidean_distance(test_data, objectives_test, test_data.types, folder)
-    zscore_correlation(test_data, objectives_test, test_data.types, folder)
+    error_correlation(test_data, test_data.types, objectives_test, folder, dataset)
+    euclidean_distance(test_data, objectives_test, test_data.types, folder, dataset)
+    zscore_correlation(test_data, objectives_test, test_data.types, folder, dataset)
     
     # Density plot of beta values for both train and test data
     density_figure = let fig
@@ -291,6 +293,6 @@ if figures
         fig
     end
 
-    save("figures/$folder/beta_density.$extension", density_figure, px_per_unit=4)
+    save("figures/$folder/beta_density_$dataset.$extension", density_figure, px_per_unit=4)
 
 end

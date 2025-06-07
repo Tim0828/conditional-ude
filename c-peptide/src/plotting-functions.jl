@@ -58,7 +58,7 @@ function model_fit(types, timepoints, models, betas, nn_params, folder)
     save("figures/$folder/model_fit.$extension", fig, px_per_unit=4)
 end
 
-function correlation_figure(training_β, test_β, train_data, test_data, indices_train, folder)
+function correlation_figure(training_β, test_β, train_data, test_data, indices_train, folder, dataset)
     fig = Figure(size=(1200, 800))
     
 
@@ -183,10 +183,10 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
     end
 
     Legend(fig[3, 1:3], ax1, orientation=:horizontal)
-    save("figures/$folder/correlations.$extension", fig, px_per_unit=4)
+    save("figures/$folder/correlations_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function residualplot(data, nn_params, betas, models, folder)
+function residualplot(data, nn_params, betas, models, folder, dataset)
     f = Figure(size=(2 * linewidth, 9 * pt * cm))
     ax = Vector{Axis}(undef, 2)
     ax[1] = Axis(f[1, 1], title="Residuals vs Fitted", xlabel="Fitted values", ylabel="Residuals")
@@ -226,11 +226,11 @@ function residualplot(data, nn_params, betas, models, folder)
     ref_line = [min_val, max_val]
     lines!(ax[2], ref_line, ref_line, color=Makie.wong_colors()[3], linestyle=:dash)
 
-    save("figures/$folder/residuals.$extension", f)
+    save("figures/$folder/residuals_$dataset.$extension", f)
 
 end
 
-function mse_violin(objectives, types, folder)
+function mse_violin(objectives, types, folder, dataset)
     fig = Figure(size=(700, 500))
     unique_types_violin = unique(types)
     ax = Axis(fig[1, 1],
@@ -274,10 +274,10 @@ function mse_violin(objectives, types, folder)
     legend_labels = ["Group Distribution", "Individual MSE", "Group Median"]
     Legend(fig[1, 2], legend_elements, legend_labels, "Legend")
 
-    save("figures/$folder/mse_violin.$extension", fig, px_per_unit=4)
+    save("figures/$folder/mse_violin_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function all_model_fits(cpeptide, models, nn_params, betas, timepoints, folder)
+function all_model_fits(cpeptide, models, nn_params, betas, timepoints, folder, dataset)
     # Create a large figure with a grid layout for all subjects
     n_subjects = length(betas[:, 1])
     n_cols = 4  # Adjust number of columns as needed
@@ -313,10 +313,10 @@ function all_model_fits(cpeptide, models, nn_params, betas, timepoints, folder)
 
 
     end
-    save("figures/$folder/all_model_fits.$extension", fig, px_per_unit=2)
+    save("figures/$folder/all_model_fits_$dataset.$extension", fig, px_per_unit=2)
 end
 
-function error_correlation(data, types, objectives, folder)
+function error_correlation(data, types, objectives, folder, dataset)
     fig = Figure(size=(1200, 800))
 
     # Calculate MSE for each subject (already done in objectives_current)
@@ -384,10 +384,10 @@ function error_correlation(data, types, objectives, folder)
     # Add a supertitle above all subplots
     Label(fig[0, 1:3], "Correlation Between Error and Physiological Metrics",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
-    save("figures/$folder/error_correlations.$extension", fig, px_per_unit=4)
+    save("figures/$folder/error_correlations_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)
+function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder, dataset)
     fig = Figure(size=(1600, 600))
 
     # Extract posterior samples for beta
@@ -454,10 +454,10 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
 
     Legend(fig[1, 4], ax2)
 
-    save("figures/$folder/beta_posterior.$extension", fig, px_per_unit=4)
+    save("figures/$folder/beta_posterior_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function euclidean_distance(test_data, objectives_current, current_types, folder)
+function euclidean_distance(test_data, objectives_current, current_types, folder, dataset)
     fig = Figure(size=(800, 600))
 
     # Calculate MSE for each subject (already done in objectives_current)
@@ -633,10 +633,10 @@ function euclidean_distance(test_data, objectives_current, current_types, folder
     ]
     legend_labels = ["Positive Effect", "Negative Effect"]
     Legend(fig[2, 2], legend_elements, legend_labels)
-    save("figures/$folder/euclidean_distance.$extension", fig, px_per_unit=4)
+    save("figures/$folder/euclidean_distance_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function zscore_correlation(test_data, objectives_current, current_types, folder)
+function zscore_correlation(test_data, objectives_current, current_types, folder, dataset)
     fig = Figure(size=(1200, 800))
 
     # Calculate MSE for each subject
@@ -745,10 +745,10 @@ function zscore_correlation(test_data, objectives_current, current_types, folder
     # Add a supertitle
     Label(fig[0, 1:3], "Correlation Between Z-Scores and Model Error",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
-    save("figures/$folder/zscore_correlations.$extension", fig, px_per_unit=4)
+    save("figures/$folder/zscore_correlations_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function plot_validation_error(best_losses, folder)
+function plot_validation_error(best_losses, folder, dataset)
     i = best_losses[:,"iteration"]
     losses = best_losses[:,"loss"]
     fig = Figure(size=(800, 400))
@@ -766,7 +766,7 @@ function plot_validation_error(best_losses, folder)
         fontsize=12)
 
     # Save the figure
-    save("figures/$folder/validation_error.$extension", fig, px_per_unit=4)
+    save("figures/$folder/validation_error_$dataset.$extension", fig, px_per_unit=4)
 
     return fig
 end
@@ -796,5 +796,5 @@ function beta_posteriors(turing_model, advi_model, folder, samples=50_000)
     end
     Label(fig[0, 1:cols], "Posterior Distributions of β Parameters",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
-    save("figures/$folder/beta_i_posteriors.$extension", fig, px_per_unit=4)
+    save("figures/$folder/beta_i_posteriors_$dataset.$extension", fig, px_per_unit=4)
 end

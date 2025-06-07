@@ -1,5 +1,6 @@
 # Perform train test split, and prepare data into a convenient JLD2 file
 using CSV, DataFrames, JLD2, StableRNGs, StatsBase, CairoMakie, Statistics, Distributions
+using Interpolations
 
 rng = StableRNG(270523)
 
@@ -9,7 +10,6 @@ COLORS = Dict(
     "IGT" => RGBf(201 / 255, 78 / 255, 0 / 255)
 )
 
-#### SECTION 1: Ohashi data ####
 
 # read the ohashi data
 data = DataFrame(CSV.File("data/ohashi_csv/ohashi_OGTT.csv"))
@@ -21,7 +21,8 @@ subject_info = DataFrame(CSV.File("data/ohashi_csv/ohashi_subjectinfo.csv"))
 subject_numbers = data_filtered[!, :No]
 subject_info_filtered = subject_info[subject_info[!, :No].∈Ref(subject_numbers), :]
 types = String.(subject_info_filtered[!, :type])
-timepoints = [0.0, 30.0, 60.0, 90.0, 120.0]
+# timepoints = [0.0, 30.0, 60.0, 90.0, 120.0]
+timepoints = 0.0:30.0:120.0 # timepoints in minutes
 glucose_indices = 2:6
 cpeptide_indices = 12:16
 ages = subject_info_filtered[!, :age]
@@ -30,6 +31,34 @@ bmis = subject_info_filtered[!, :BMI]
 
 glucose_data = Matrix{Float64}(data_filtered[:, glucose_indices]) .* 0.0551 # convert to mmol/L
 cpeptide_data = Matrix{Float64}(data_filtered[:, cpeptide_indices]) .* 0.3311 # convert to nmol/L
+
+## Interpolate between glucose and cpeptide datapoints
+
+# Create interpolated time points (every 5 minutes from 0 to 120)
+interpolated_timepoints = 0.0:15.0:120.0
+
+# Initialize arrays for interpolated data
+
+glucose_interpolated = zeros(size(glucose_data, 1), length(interpolated_timepoints))
+cpeptide_interpolated = zeros(size(cpeptide_data, 1), length(interpolated_timepoints))
+
+# Interpolate each subject's data
+for i in axes(glucose_data, 1)
+    subject_glucose = glucose_data[i, :]
+    subject_cpeptide = cpeptide_data[i, :]
+    # Create interpolation objects for glucose and cpeptide
+    glucose_interp = cubic_spline_interpolation(timepoints, subject_glucose)
+    cpeptide_interp = cubic_spline_interpolation(timepoints, subject_cpeptide)
+    
+    # Evaluate at interpolated timepoints
+    glucose_interpolated[i, :] = glucose_interp.(interpolated_timepoints)
+    cpeptide_interpolated[i, :] = cpeptide_interp.(interpolated_timepoints)
+end
+
+# Update the data matrices and timepoints for plotting
+glucose_data = glucose_interpolated
+cpeptide_data = cpeptide_interpolated
+timepoints = collect(interpolated_timepoints)
 
 # figure illustrating the OGTT data
 figure_ogtt = let f = Figure(size=(550, 300))
@@ -69,7 +98,7 @@ figure_ogtt = let f = Figure(size=(550, 300))
     f
 end
 
-save("figures/data/illustration_ogtt.png", figure_ogtt, px_per_unit=4)
+save("figures/data/illustration_ogtt_rich.png", figure_ogtt, px_per_unit=4)
 
 clamp_indices = DataFrame(CSV.File("data/ohashi_csv/ohashi_clamp_indices.csv"))
 
@@ -201,11 +230,11 @@ for (i, (train_metric, test_metric, name)) in enumerate(zip(train_metrics, test_
     end
 end
 
-save("figures/data/train_test_distributions.png", fig, px_per_unit=2)
+save("figures/data/train_test_distributions_rich.png", fig, px_per_unit=2)
 
 # Save all data in a convenient JLD2 hierarchical format
 jldsave(
-    "data/ohashi2.jld2";
+    "data/ohashi_rich.jld2";
     train=(
         glucose=glucose_data[training_indices, :],
         cpeptide=cpeptide_data[training_indices, :],
@@ -248,7 +277,7 @@ clamp_insulin_timepoints = [0, 5, 10, 15, 60, 75, 90]
 figure_clamp_insulin = let fig
     fig = Figure(size=(400, 400))
     ax = Axis(fig[1, 1], xlabel="Time (min)", ylabel="Insulin (mU/L)")
-    for (i, type) in enumerate(["NGT", "T2DM"])
+    for (i, type) in enumerate(["NGT", "IGT", "T2DM"])
         type_indices = types .== type
         mean_insulin = mean(clamp_insulin_data[type_indices, :], dims=1)[:]
         std_insulin = std(clamp_insulin_data[type_indices, :], dims=1)[:] ./ sqrt(sum(type_indices)) # standard error
