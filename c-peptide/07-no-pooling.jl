@@ -57,6 +57,7 @@ if train_model
 
     # Train the n best initial neural network sets
     println("Training ADVI models...")
+    # note that this function uses partial pooling for the training data
     nn_params, betas, betas_test, advi_model,
     advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train,
         test_data, models_test, advi_iterations, advi_test_iterations)

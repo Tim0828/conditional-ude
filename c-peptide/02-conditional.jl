@@ -2,7 +2,7 @@
 train_model = true
 figures = true
 folder = "MLE"
-dataset = "ohashi_rich"
+dataset = "ohashi_low"
 extension = "png"
 pt = 4/3
 

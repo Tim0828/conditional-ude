@@ -76,10 +76,14 @@ function ADVI_predict(β, neural_network_parameters, problem, timepoints)
     return solution
 end
 
-@model function partial_pooled(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
+@model function partial_pooled(data, timepoints, models, neural_network_parameters, priors=nothing, ::Type{T}=Float64) where T
+    # Use estimated or default priors
+    if isnothing(priors)
+        μ_beta ~ Normal(-2.0, 5.0)  # Default fallback
+    else
+        μ_beta ~ priors.μ_beta_prior  # Data-driven prior
+    end
 
-    # distribution for the population mean and precision
-    μ_beta ~ Normal(-2.0, 5.0)
     σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters
@@ -219,14 +223,20 @@ function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_tr
     advi_models = []
     advi_models_test = []
 
+    # estimate priors
+    priors = estimate_priors(train_data, indices_validation, models_train)
+
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
     for (j, initial_nn) in enumerate(initial_nn_sets)
         # initiate turing model
-        local turing_model_train = partial_pooled(train_data.cpeptide[indices_train, :],
+        local turing_model_train = partial_pooled(
+            train_data.cpeptide[indices_train, :],
             train_data.timepoints,
             models_train[indices_train],
-            initial_nn)
+            initial_nn,
+            priors
+            )
 
         # train conditional model
         println("Training on training data...")
@@ -271,4 +281,41 @@ function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_tr
 
     return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
 
+end
+
+function estimate_priors(train_data, validation_indices, models, n_samples=100)
+    # Use a small subset of data to avoid overfitting priors
+    subset_indices = sample(validation_indices, min(50, length(validation_indices)), replace=false)
+    subset_models = models[subset_indices]
+
+    # Initialize storage for parameter estimates
+    beta_estimates = Float64[]
+
+    # Perform quick MLE fitting to get reasonable parameter ranges
+    for (i, idx) in enumerate(subset_indices)
+        # Create simple optimization problem for single subject
+        nn_params = init_params(subset_models[i].chain)
+
+        function simple_loss(beta)
+            return calculate_mse(
+                train_data.cpeptide[idx, :],
+                ADVI_predict(beta[1], nn_params, subset_models[i].problem, train_data.timepoints)
+            )
+        end
+
+        # Quick optimization with wide bounds
+        res = optimize(simple_loss, [-10.0], [10.0])
+        push!(beta_estimates, Optim.minimizer(res)[1])
+    end
+
+    # Calculate statistics for priors
+    μ_beta_estimate = mean(beta_estimates)
+    σ_beta_estimate = std(beta_estimates)
+
+    # Return suggested priors
+    return (
+        μ_beta_prior=Normal(μ_beta_estimate, max(2.0, 2 * σ_beta_estimate)),
+        σ_beta_prior=InverseGamma(2, 3 * σ_beta_estimate), # Scale based on observed variance
+        indiv_beta_prior=Normal(μ_beta_estimate, max(5.0, 5 * σ_beta_estimate)) # Wider for no-pooling
+    )
 end
