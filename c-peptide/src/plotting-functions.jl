@@ -17,6 +17,12 @@ pt = 4 / 3
 cm = inch / 2.54
 linewidth = 13.07245cm
 
+COLORS = Dict(
+    "T2DM" => RGBf(1 / 255, 120 / 255, 80 / 255),
+    "NGT" => RGBf(1 / 255, 101 / 255, 157 / 255),
+    "IGT" => RGBf(201 / 255, 78 / 255, 0 / 255)
+)
+
 FONTS = (
     ; regular="Fira Sans Light",
     bold="Fira Sans SemiBold",
@@ -798,3 +804,89 @@ function beta_posteriors(turing_model, advi_model, folder, samples=50_000)
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
     save("figures/$folder/beta_i_posteriors_$dataset.$extension", fig, px_per_unit=4)
 end
+
+# figure illustrating the OGTT data
+function ogtt_figure(glucose_data, cpeptide_data, types, timepoints, dataset)
+    f = Figure(size=(550, 300))
+
+    ga = GridLayout(f[1, 1])
+    gb = GridLayout(f[1, 2])
+
+    ax_glucose = Axis(ga[1, 1], xlabel="Time (min)", ylabel="Glucose (mM)")
+    ax_cpeptide = Axis(gb[1, 1], xlabel="Time (min)", ylabel="C-peptide (nM)")
+    markers = ['●', '▴', '■']
+    markersizes = [10, 18, 10]
+    for ((i, type), marker, markersize) in zip(enumerate(unique(types)), markers, markersizes)
+        type_indices = types .== type
+        mean_glucose = mean(glucose_data[type_indices, :], dims=1)[:]
+        std_glucose = 1.96 .* std(glucose_data[type_indices, :], dims=1)[:] ./ sqrt(sum(type_indices)) # standard error
+        band!(ax_glucose, timepoints, mean_glucose .- std_glucose, mean_glucose .+ std_glucose, color=(COLORS[type], 0.3), label=type)
+        lines!(ax_glucose, timepoints, mean_glucose, color=(COLORS[type], 1), linewidth=2, label=type)
+        scatter!(ax_glucose, timepoints, mean_glucose, color=(COLORS[type], 1), markersize=markersize, marker=marker, label=type)
+
+        mean_cpeptide = mean(cpeptide_data[type_indices, :], dims=1)[:]
+        std_cpeptide = 1.96 .* std(cpeptide_data[type_indices, :], dims=1)[:] ./ sqrt(sum(type_indices)) # standard error
+        band!(ax_cpeptide, timepoints, mean_cpeptide .- std_cpeptide, mean_cpeptide .+ std_cpeptide, color=(COLORS[type], 0.3), label=type)
+        lines!(ax_cpeptide, timepoints, mean_cpeptide, color=(COLORS[type], 1), linewidth=2, label=type)
+        scatter!(ax_cpeptide, timepoints, mean_cpeptide, color=(COLORS[type], 1), markersize=markersize, marker=marker, label=type)
+    end
+    Legend(f[2, 1:2], ax_glucose, orientation=:horizontal, merge=true)
+
+
+    for (label, layout) in zip(["a", "b"], [ga, gb])
+        Label(layout[1, 1, TopLeft()], label,
+            fontsize=18,
+            font=:bold,
+            padding=(0, 20, 8, 0),
+            halign=:right)
+    end
+
+    save("figures/data/illustration_ogtt_$dataset.png", f, px_per_unit=4)
+end
+
+function train_test_distributions(train_metrics, test_metrics, metric_names, dataset)
+    # Create the distribution comparison figure
+    fig = Figure(size=(1200, 800))
+
+    for (i, (train_metric, test_metric, name)) in enumerate(zip(train_metrics, test_metrics, metric_names))
+        row = ceil(Int, i / 3)
+        col = ((i - 1) % 3) + 1
+
+        ax = Axis(fig[row, col], xlabel=name, ylabel="Density")
+
+        density!(ax, train_metric, label="Train", color=(:blue, 0.6))
+        density!(ax, test_metric, label="Test", color=(:red, 0.6))
+
+        # Calculate and display KL divergence for this metric
+        kl_div = kl_divergence(train_metric, test_metric)
+        # text!(ax, 0.05, 0.95, "KL div: $(round(kl_div, digits=3))", space=:relative, fontsize=10, color=:black)
+
+        if i == 1
+            axislegend(ax, position=:rt)
+        end
+        save("figures/data/train_test_distributions_$dataset.png", fig, px_per_unit=2)
+    end
+
+end
+
+function clamp_insulin_figure(clamp_insulin_data, clamp_insulin_timepoints, types)
+    fig = Figure(size=(400, 400))
+    ax = Axis(fig[1, 1], xlabel="Time (min)", ylabel="Insulin (mU/L)")
+    for (i, type) in enumerate(["NGT", "IGT", "T2DM"])
+        type_indices = types .== type
+        mean_insulin = mean(clamp_insulin_data[type_indices, :], dims=1)[:]
+        std_insulin = std(clamp_insulin_data[type_indices, :], dims=1)[:] ./ sqrt(sum(type_indices)) # standard error
+        band!(ax, clamp_insulin_timepoints, repeat([mean_insulin[1]], length(mean_insulin)), mean_insulin, color=(Makie.ColorSchemes.tab10[i], 0.3), label=type)
+        lines!(ax, clamp_insulin_timepoints, mean_insulin, color=(Makie.ColorSchemes.tab10[i], 1), linewidth=2, label=type)
+        scatter!(ax, clamp_insulin_timepoints, mean_insulin, color=(Makie.ColorSchemes.tab10[i], 1), markersize=10)
+    end
+
+    vlines!(ax, [10], color=:black, linestyle=:dash, linewidth=1)
+    text!(ax, -12, 60; text="1st phase")
+    text!(ax, 45, 60; text="2nd phase")
+
+    Legend(fig[2, 1], ax, orientation=:horizontal, merge=true)
+    fig
+    save("figures/data/illustration_clamp_insulin.png", figure_clamp_insulin, px_per_unit=4)
+end
+

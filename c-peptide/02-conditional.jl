@@ -37,7 +37,7 @@ models_train = [
     CPeptideCUDEModel(train_data.glucose[i,:], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i,:], t2dm[i]) for i in axes(train_data.glucose, 1)
 ]
 # train on 70%, select on 30%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.5)
+indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
 
 # train the models or load the trained model neural network parameters
 if train_model
@@ -103,10 +103,6 @@ jldopen("data/MLE/mse_$dataset.jld2", "w") do file
 end
 
 if figures
-    #################### Model fit ####################
-    # no need, do model comparison later
-    # model_fit(test_data.types, test_data.timepoints, models_test, betas_test, neural_network_parameters, folder)
-
     ############### Correlation Plots ###############
     betas_train_train = betas_train[indices_train]
     correlation_figure(betas_train_train, betas_test, train_data, test_data, indices_train, folder, dataset)

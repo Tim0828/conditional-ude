@@ -189,13 +189,13 @@ function calculate_mse(observed, predicted)
     return mean((observed[valid_indices] .- predicted[valid_indices]) .^ 2)
 end
 
-function load_model(folder)
+function load_model(folder, dataset)
     # Load the model
-    advi_model = JLD2.load("data/$folder/advi_model.jld2", "advi_model")
-    advi_model_test = JLD2.load("data/$folder/advi_model_test.jld2", "advi_model_test")
-    nn_params = JLD2.load("data/$folder/nn_params.jld2", "nn_params")
-    betas = JLD2.load("data/$folder/betas.jld2", "betas")
-    betas_test = JLD2.load("data/$folder/betas_test.jld2", "betas_test")
+    advi_model = JLD2.load("data/$folder/advi_model_$dataset.jld2", "advi_model")
+    advi_model_test = JLD2.load("data/$folder/advi_model_test_$dataset.jld2", "advi_model_test")
+    nn_params = JLD2.load("data/$folder/nn_params_$dataset.jld2", "nn_params")
+    betas = JLD2.load("data/$folder/betas_$dataset.jld2", "betas")
+    betas_test = JLD2.load("data/$folder/betas_test_$dataset.jld2", "betas_test")
 
     return (
         advi_model,
@@ -206,12 +206,12 @@ function load_model(folder)
     )
 end
 
-function save_model(folder)
-    save("data/$folder/advi_model.jld2", "advi_model", advi_model)
-    save("data/$folder/advi_model_test.jld2", "advi_model_test", advi_model_test)
-    save("data/$folder/nn_params.jld2", "nn_params", nn_params)
-    save("data/$folder/betas.jld2", "betas", betas)
-    save("data/$folder/betas_test.jld2", "betas_test", betas_test)
+function save_model(folder, dataset)
+    save("data/$folder/advi_model_$dataset.jld2", "advi_model", advi_model)
+    save("data/$folder/advi_model_test_$dataset.jld2", "advi_model_test", advi_model_test)
+    save("data/$folder/nn_params_$dataset.jld2", "nn_params", nn_params)
+    save("data/$folder/betas_$dataset.jld2", "betas", betas)
+    save("data/$folder/betas_test_$dataset.jld2", "betas_test", betas_test)
 end
 
 function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)

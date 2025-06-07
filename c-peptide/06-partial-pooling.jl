@@ -1,12 +1,18 @@
 ######### settings ########
-train_model = true
+train_model = false
 quick_train = false
 figures = true
 n_best = 3
-dataset = ""
+dataset = "ohashi_low"
 
 # choose folder
-folder = "partial_pooling$dataset"
+folder = "partial_pooling"
+if !isdir("figures/$folder/$dataset")
+    mkpath("figures/$folder/$dataset")
+end
+if !isdir("data/$folder")
+    mkpath("data/$folder")
+end
 ####### imports #######
 using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
@@ -17,12 +23,18 @@ include("src/VI_models.jl")
 rng = StableRNG(232705)
 ######### data ########
 # Load the data
-train_data, test_data = jldopen("data/ohashi$dataset.jld2") do file
+train_data, test_data = jldopen("data/$dataset.jld2") do file
     file["train"], file["test"]
 end
 
-# train on 70%, select on 30%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+
+if dataset == "ohashi_low"
+    # train on 50%, select on 50% (reduced dataset)
+    indices_train, indices_validation = stratified_split(rng, train_data.types, 0.5)
+else
+    # train on 70%, select on 30%
+    indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+end
 
 # define the neural network
 chain = neural_network_model(2, 6)
@@ -67,7 +79,7 @@ if train_model
 
     # Save the model
     if quick_train == false
-        save_model(folder)
+        save_model(folder, dataset)
     end
 
 else
@@ -78,7 +90,7 @@ else
         nn_params,
         betas,
         betas_test
-    ) = load_model(folder)
+    ) = load_model(folder, dataset)
 
 
 end
@@ -109,37 +121,37 @@ if figures
     ]
 
     # save MSE values
-    save("data/$folder/mse.jld2", "objectives_current", objectives_current)
+    save("data/$folder/mse_$dataset.jld2", "objectives_current", objectives_current)
 
     #################### Model fit  ####################
-    model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)
+    # model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
-    correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder)
+    correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder, dataset)
 
     ###################### Residual and QQ plots ######################
-    residualplot(test_data, nn_params, betas, current_models_subset, folder)
+    residualplot(test_data, nn_params, current_betas, current_models_subset, folder, dataset)
 
     ###################### MSE Violin Plot  ######################
-    mse_violin(objectives_current, current_types, folder)
+    mse_violin(objectives_current, current_types, folder, dataset)
 
     #################### All Model Fits ####################
-    all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder)
+    all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder, dataset)
 
     #################### Correlation Between Error and Physiological Metrics ####################
-    error_correlation(test_data, current_types, objectives_current, folder)
+    error_correlation(test_data, current_types, objectives_current, folder, dataset)
 
     #################### Beta Posterior Plot ####################
     # Overall beta posterior plot
-    beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)
+    beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder, dataset)
     # Beta posterior plots for each subject
     samples = 10_000
     beta_posteriors(turing_model_test, advi_model_test, folder, samples)
 
     #################### Euclidean Distance from Mean vs Error ####################
-    euclidean_distance(test_data, objectives_current, current_types, folder)
+    euclidean_distance(test_data, objectives_current, current_types, folder, dataset)
 
     #################### Z-Score vs Error Correlation ####################
-    zscore_correlation(test_data, objectives_current, current_types, folder)
+    zscore_correlation(test_data, objectives_current, current_types, folder, dataset)
     println("All figures saved in figures/$folder")
 end
