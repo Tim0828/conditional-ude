@@ -11,8 +11,8 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
         # initiate nn-params
         nn_params = init_params(models_train[j].chain)
 
-        # Sample betas from a normal distribution
-        μ_beta_dist = Normal(-2.0, 5.0)
+        # Sample betas from a wide normal distribution
+        μ_beta_dist = Normal(0.0, 10.0) # Wide prior for initial betas
         betas = Vector{Float64}(undef, length(validation_models))
         for i in eachindex(validation_models)
             betas[i] = rand(μ_beta_dist)
@@ -27,25 +27,54 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
             for (i, idx) in enumerate(indices_validation)
         ]
         mean_mse = mean(objectives)
-        
+
         # store all results
         push!(all_results, (iteration=i, loss=mean_mse, nn_params=copy(nn_params)))
         next!(prog)
     end
-    
+
     # sort by loss and get n_best results
     sort!(all_results, :loss)
     best_results = first(all_results, n_best)
 
-    
+
     println("Best $n_best losses: ", best_results.loss)
-    
+
     return best_results
 end
 
-function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=3, test=false)
-    advi = ADVI(mcmc_samples, advi_iterations)
-    advi_model = vi(turing_model, advi)
+function callback(; stat, averaged_params, restructure, kwargs...)
+    elbo = stat.elbo
+    if stat.iteration > 100 && stat.iteration % 50 == 0 && mean(elbo[end-100:end]) < 0.0
+        println("Early stopping at iteration $(stat.iteration) with ELBO $(mean(elbo[end-100:end]))")
+        return true # Stop if ELBO is negative for the last 100 iterations
+    else
+        return nothing # Continue otherwise
+    end
+end
+
+function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=3, test=false, method="old")
+    # full-rank would be qualitatively better, but way slower
+    if method == "old"
+        # Use the old mean-field Gaussian approximation
+        advi = ADVI(mcmc_samples, advi_iterations)
+        advi_model = vi(turing_model, advi)
+        stats = nothing 
+    elseif method == "meanfield"
+        # Use the mean-field Gaussian approximation
+        q = Turing.q_meanfield_gaussian(turing_model)
+        objective = AdvancedVI.RepGradELBO(mcmc_samples)
+        advi_model, _, stats, _ = vi(turing_model, q, advi_iterations; objective) #, callback)
+
+    elseif method == "fullrank"
+        # Use the new full-rank Gaussian approximation
+        q = Turing.q_fullrank_gaussian(turing_model)
+        objective = AdvancedVI.RepGradELBO(mcmc_samples)
+        advi_model, _, stats, _ = vi(turing_model, q, advi_iterations; objective, callback)
+
+    else
+        error("Unknown method: $method. Use 'old', 'meanfield', or 'fullrank'.")
+    end
     _, sym2range = bijector(turing_model, Val(true))
     z = rand(advi_model, posterior_samples)
     # sample parameters
@@ -54,7 +83,7 @@ function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcm
     if test == false
         sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
         nn_params = mean(sampled_nn_params, dims=2)[:]
-        return nn_params, betas, advi_model
+        return nn_params, betas, advi_model, stats
     end
     return betas, advi_model
 end
@@ -80,11 +109,11 @@ end
     # Use estimated or default priors
     if isnothing(priors)
         μ_beta ~ Normal(-2.0, 5.0)  # Default fallback
+        σ_beta ~ InverseGamma(2, 3)
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
+        σ_beta ~ priors.σ_beta_prior
     end
-
-    σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters
     β = Vector{T}(undef, length(models))
@@ -135,15 +164,22 @@ end
     return nothing
 end
 
-@model function no_pooling(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
+@model function no_pooling(data, timepoints, models, neural_network_parameters, priors=nothing, ::Type{T}=Float64) where T
     # In a no-pooling model, we don't have population-level parameters (μ_beta and σ_beta)
     # Each beta is independent with its own prior
+
+    # Use estimated or default priors
+    if isnothing(priors)
+        μ_beta = 0.0
+    else
+        μ_beta = priors.μ_beta_estimate  # Data-driven prior
+    end
 
     # distribution for the individual model parameters
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
         # Each β gets its own independent prior
-        β[i] ~ Normal(0.0, 10.0)  # Wide prior since we're not pooling information
+        β[i] ~ Normal(μ_beta, 10.0)  # Wide prior since we're not pooling information
     end
 
     # Neural network parameters
@@ -218,17 +254,18 @@ function save_model(folder, dataset)
     save("data/$folder/betas_test_$dataset.jld2", "betas_test", betas_test)
 end
 
-function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
-    training_results = DataFrame(nn_params=Vector[], betas_test=Vector[], betas=Vector[], loss=Float64[], j=Int[])
+function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+    training_results = DataFrame(nn_params=Vector[], betas_test=Vector[], betas=Vector[], loss=Float64[], j=Int[], stats= Vector{Any}[])
     advi_models = []
     advi_models_test = []
 
-    # estimate priors
-    priors = estimate_priors(train_data, indices_validation, models_train)
+
 
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
     for (j, initial_nn) in enumerate(initial_nn_sets)
+        # estimate priors
+        local priors = estimate_priors(train_data, models_train, initial_nn)
         # initiate turing model
         local turing_model_train = partial_pooled(
             train_data.cpeptide[indices_train, :],
@@ -236,11 +273,11 @@ function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_tr
             models_train[indices_train],
             initial_nn,
             priors
-            )
+        )
 
         # train conditional model
         println("Training on training data...")
-        local nn_params, betas, advi_model = train_ADVI(turing_model_train, advi_iterations)
+        local nn_params, betas, advi_model, stats = train_ADVI(turing_model_train, advi_iterations)
 
         # fixed parameters for the test data
         println("Training betas on test data...")
@@ -261,9 +298,75 @@ function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_tr
 
         mean_objective = mean(objectives_current)
         println("Mean MSE for current model: $mean_objective")
-        model_plus_loss = ()
         # Store the results
-        push!(training_results, (nn_params=copy(nn_params), betas_test=copy(betas_test), betas=copy(betas), loss=mean_objective, j=j))
+        push!(training_results, (nn_params=copy(nn_params), betas_test=copy(betas_test), betas=copy(betas), loss=mean_objective, j=j, stats=copy(stats)))
+        push!(advi_models, advi_model)
+        push!(advi_models_test, advi_model_test)
+        next!(prog)
+    end
+
+    # Sort the results by loss and take the best one
+    sort!(training_results, :loss)
+    best_result = first(training_results, 1)
+    nn_params = best_result.nn_params[1]
+    betas_test = best_result.betas_test[1]
+    betas = best_result.betas[1]
+    advi_model = advi_models[best_result.j[1]]
+    advi_model_test = advi_models_test[best_result.j[1]]
+    println("Best loss: ", best_result.loss)
+    jld2save("data/partial_pooling/training_results_$dataset.jld2", "training_results", training_results)
+    jld2save("data/partial_pooling/stats_$dataset.jld2", "stats", best_result.stats)
+
+    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
+
+end
+
+function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+    training_results = DataFrame(nn_params=Vector[], betas_test=Vector[], betas=Vector[], loss=Float64[], j=Int[], stats= Vector{Any}[])
+    advi_models = []
+    advi_models_test = []
+
+
+
+    # Add progress bar
+    prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
+    for (j, initial_nn) in enumerate(initial_nn_sets)
+        # estimate priors
+        local priors = estimate_priors(train_data, models_train, initial_nn)
+        # initiate turing model
+        local turing_model_train = no_pooling(
+            train_data.cpeptide[indices_train, :],
+            train_data.timepoints,
+            models_train[indices_train],
+            initial_nn,
+            priors
+        )
+
+        # train conditional model
+        println("Training on training data...")
+        local nn_params, betas, advi_model, stats = train_ADVI(turing_model_train, advi_iterations)
+
+        # fixed parameters for the test data
+        println("Training betas on test data...")
+        local turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
+
+        # train the conditional parameters for the test data
+        local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+
+        # Evaluate on test data
+        local objectives_current = [
+            calculate_mse(
+                test_data.cpeptide[i, :],
+                ADVI_predict(betas_test[i], nn_params, models_test[i].problem, test_data.timepoints)
+            )
+            for i in eachindex(betas_test)
+        ]
+
+
+        mean_objective = mean(objectives_current)
+        println("Mean MSE for current model: $mean_objective")
+        # Store the results
+        push!(training_results, (nn_params=copy(nn_params), betas_test=copy(betas_test), betas=copy(betas), loss=mean_objective, j=j, stats=copy(stats)))
         push!(advi_models, advi_model)
         push!(advi_models_test, advi_model_test)
         next!(prog)
@@ -277,45 +380,63 @@ function train_ADVI_models(initial_nn_sets, train_data, indices_train, models_tr
     betas = best_result.betas[1]
     advi_model = advi_models[best_result.j[1]]
     advi_model_test = advi_models_test[best_result.j[1]]
+    jld2save("data/no_pooling/training_results_$dataset.jld2", "training_results", training_results)
+    jld2save("data/no_pooling/stats_$dataset.jld2", "stats", best_result.stats)
     println("Best loss: ", best_result.loss)
 
     return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
 
 end
 
-function estimate_priors(train_data, validation_indices, models, n_samples=100)
-    # Use a small subset of data to avoid overfitting priors
-    subset_indices = sample(validation_indices, min(50, length(validation_indices)), replace=false)
-    subset_models = models[subset_indices]
-
+function estimate_priors(train_data, models, nn_params)
     # Initialize storage for parameter estimates
     beta_estimates = Float64[]
 
-    # Perform quick MLE fitting to get reasonable parameter ranges
-    for (i, idx) in enumerate(subset_indices)
-        # Create simple optimization problem for single subject
-        nn_params = init_params(subset_models[i].chain)
+    prog = Progress(length(models); dt=0.01, desc="Estimating priors... ", showspeed=true, color=:firebrick)
 
-        function simple_loss(beta)
-            return calculate_mse(
-                train_data.cpeptide[idx, :],
-                ADVI_predict(beta[1], nn_params, subset_models[i].problem, train_data.timepoints)
-            )
+    for (idx, _) in enumerate(models)
+
+        # Define proper scalar loss function - this was missing!
+        function simple_loss(β)
+            # Important: β is a scalar here
+            prediction = ADVI_predict(β[1], nn_params, models[idx].problem, train_data.timepoints)
+            return calculate_mse(train_data.cpeptide[idx, :], prediction)
         end
 
-        # Quick optimization with wide bounds
-        res = optimize(simple_loss, [-10.0], [10.0])
-        push!(beta_estimates, Optim.minimizer(res)[1])
+        # Simple grid search to find good starting point
+        best_beta = -0.0 # default
+        best_loss = Inf
+
+        for test_beta in -20:0.1:20.0
+            try
+                loss = simple_loss([test_beta])
+                if loss < best_loss
+                    best_loss = loss
+                    best_beta = test_beta
+                end
+            catch
+                continue
+            end
+        end
+
+        push!(beta_estimates, best_beta)
+        next!(prog)
     end
 
     # Calculate statistics for priors
-    μ_beta_estimate = mean(beta_estimates)
-    σ_beta_estimate = std(beta_estimates)
+    if isempty(beta_estimates)
+        μ_beta_estimate = -2.0
+        σ_beta_estimate = 5.0
+        println("Warning: No valid beta estimates. Using defaults: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
+    else
+        μ_beta_estimate = mean(beta_estimates)
+        σ_beta_estimate = max(1.0, std(beta_estimates)) # Ensure σ_beta is not too small
+        println("Estimated μ_beta: $μ_beta_estimate, σ_beta: $σ_beta_estimate from $(length(beta_estimates)) subjects")
+    end
 
     # Return suggested priors
     return (
-        μ_beta_prior=Normal(μ_beta_estimate, max(2.0, 2 * σ_beta_estimate)),
-        σ_beta_prior=InverseGamma(2, 3 * σ_beta_estimate), # Scale based on observed variance
-        indiv_beta_prior=Normal(μ_beta_estimate, max(5.0, 5 * σ_beta_estimate)) # Wider for no-pooling
-    )
+        μ_beta_prior=Normal(μ_beta_estimate, 1.5 * σ_beta_estimate),
+        σ_beta_prior=InverseGamma(2.0, max(1.0, 1.5 * σ_beta_estimate)),
+        μ_beta_estimate=μ_beta_estimate)
 end

@@ -33,7 +33,7 @@ function total_kl_divergence(train_indices, test_indices, metrics)
 end
 
 # Function to optimize train/test split to minimize KL divergence
-function optimize_train_test_split(types, metrics, f_train, rng; n_attempts=1000)
+function optimize_split(types, metrics, f_train, rng; n_attempts=5000)
     """
     Optimize train/test split to minimize KL divergence between train and test distributions.
     
@@ -50,7 +50,7 @@ function optimize_train_test_split(types, metrics, f_train, rng; n_attempts=1000
     best_kl = Inf
     best_train_indices = Int[]
     best_test_indices = Int[]
-
+    println("Optimizing split...")
     # Try multiple random splits to find the one with minimum KL divergence
     for attempt in 1:n_attempts
         temp_train_indices, temp_test_indices = stratified_split(rng, types, f_train)
@@ -68,3 +68,55 @@ function optimize_train_test_split(types, metrics, f_train, rng; n_attempts=1000
     println("Best KL divergence: $best_kl")
     return best_train_indices, best_test_indices
 end
+
+
+function load_data()
+    clamp_indices = DataFrame(CSV.File("data/ohashi_csv/ohashi_clamp_indices.csv"))
+    subject_info = DataFrame(CSV.File("data/ohashi_csv/ohashi_subjectinfo.csv"))
+    data = DataFrame(CSV.File("data/ohashi_csv/ohashi_OGTT.csv"))
+
+    glucose_indices = 2:6
+    cpeptide_indices = 12:16
+
+    data_filtered = dropmissing(data)
+
+    subject_numbers = data_filtered[!, :No]
+    subject_info_filtered = subject_info[subject_info[!, :No].∈Ref(subject_numbers), :]
+    clamp_indices_filtered = clamp_indices[clamp_indices[!, :No].∈Ref(subject_numbers), :]
+
+    types = String.(subject_info_filtered[!, :type])
+    timepoints = [0.0, 30.0, 60.0, 90.0, 120.0]
+    ages = subject_info_filtered[!, :age]
+    body_weights = subject_info_filtered[!, :BW]
+    bmis = subject_info_filtered[!, :BMI]
+
+    glucose_data = Matrix{Float64}(data_filtered[:, glucose_indices]) .* 0.0551 # convert to mmol/L
+    cpeptide_data = Matrix{Float64}(data_filtered[:, cpeptide_indices]) .* 0.3311 # convert to nmol/L
+
+    disposition_indices = clamp_indices_filtered[!, Symbol("clamp PAI")]
+    first_phase = clamp_indices_filtered[!, Symbol("incremental AUC IRI(10)")]
+    second_phase = clamp_indices_filtered[!, Symbol("incremental AUC IRI(10-90)")]
+    isi = clamp_indices_filtered[!, Symbol("ISI(GIR/Glu/IRI)")]
+    total = first_phase .+ second_phase
+
+    # create the time series
+    return (
+        subject_numbers,
+        subject_info_filtered,
+        types,
+        timepoints,
+        glucose_indices,
+        cpeptide_indices,
+        ages,
+        body_weights,
+        bmis,
+        glucose_data,
+        cpeptide_data,
+        disposition_indices,
+        first_phase,
+        second_phase,
+        isi,
+        total
+    )
+end
+
