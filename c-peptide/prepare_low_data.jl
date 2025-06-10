@@ -1,6 +1,5 @@
 # Perform train test split, and prepare data into a convenient JLD2 file
 using CSV, DataFrames, JLD2, StableRNGs, StatsBase, CairoMakie, Statistics, Distributions
-using Interpolations
 
 rng = StableRNG(270523)
 
@@ -11,38 +10,13 @@ f_train = 0.70
 dataset = "ohashi_low"
 
 # read the ohashi data
-data = DataFrame(CSV.File("data/ohashi_csv/ohashi_OGTT.csv"))
-data_filtered = dropmissing(data)
+(subject_numbers, subject_info_filtered, types, timepoints, glucose_indices, cpeptide_indices, ages,
+    body_weights, bmis, glucose_data, cpeptide_data, disposition_indices, first_phase, second_phase, isi, total) = load_data()
 
-subject_info = DataFrame(CSV.File("data/ohashi_csv/ohashi_subjectinfo.csv"))
-
-# create the time series
-subject_numbers = data_filtered[!, :No]
-subject_info_filtered = subject_info[subject_info[!, :No].∈Ref(subject_numbers), :]
-types = String.(subject_info_filtered[!, :type])
-timepoints = [0.0, 30.0, 60.0, 90.0, 120.0]
-glucose_indices = 2:6
-cpeptide_indices = 12:16
-ages = subject_info_filtered[!, :age]
-body_weights = subject_info_filtered[!, :BW]
-bmis = subject_info_filtered[!, :BMI]
-
-glucose_data = Matrix{Float64}(data_filtered[:, glucose_indices]) .* 0.0551 # convert to mmol/L
-cpeptide_data = Matrix{Float64}(data_filtered[:, cpeptide_indices]) .* 0.3311 # convert to nmol/L
-
-clamp_indices = DataFrame(CSV.File("data/ohashi_csv/ohashi_clamp_indices.csv"))
-
-clamp_indices_filtered = clamp_indices[clamp_indices[!, :No].∈Ref(subject_numbers), :]
-disposition_indices = clamp_indices_filtered[!, Symbol("clamp PAI")]
-first_phase = clamp_indices_filtered[!, Symbol("incremental AUC IRI(10)")]
-second_phase = clamp_indices_filtered[!, Symbol("incremental AUC IRI(10-90)")]
-isi = clamp_indices_filtered[!, Symbol("ISI(GIR/Glu/IRI)")]
-total = first_phase .+ second_phase
-
-
-## Reduce number of subjects while maintaining type ratios, reuse stratified_split
+ogtt_figure(glucose_data, cpeptide_data, types, timepoints, dataset)
 metrics = [first_phase, second_phase, ages, isi, body_weights, bmis]
-reduced_indices, _  = optimize_train_test_split(types, metrics, 0.5, rng, n_attempts=5000)
+
+reduced_indices, _ = optimize_split(types, metrics, 0.5, rng, n_attempts=5000)
 
 # Apply reduction to all data
 subject_numbers = subject_numbers[reduced_indices]
@@ -52,6 +26,7 @@ body_weights = body_weights[reduced_indices]
 bmis = bmis[reduced_indices]
 glucose_data = glucose_data[reduced_indices, :]
 cpeptide_data = cpeptide_data[reduced_indices, :]
+metrics = [first_phase, second_phase, ages, isi, body_weights, bmis]
 
 # Feedback
 println("\nReduced subject counts:")
@@ -62,7 +37,7 @@ end
 println("Total: ", length(types), " subjects")
 
 # Optimize train/test split to minimize KL divergence
-training_indices, testing_indices = optimize_train_test_split(types, metrics, f_train, rng, n_attempts=5000)
+training_indices, testing_indices = optimize_split(types, metrics, f_train, rng, n_attempts=5000)
 
 # Create figure showing train/test distribution similarity
 train_metrics = [
@@ -112,7 +87,8 @@ jldsave(
         first_phase=first_phase[training_indices],
         second_phase=second_phase[training_indices],
         total_insulin=total[training_indices],
-        insulin_sensitivity=isi[training_indices]
+        insulin_sensitivity=isi[training_indices],
+        training_indices=training_indices
     ),
     test=(
         glucose=glucose_data[testing_indices, :],
@@ -127,7 +103,8 @@ jldsave(
         first_phase=first_phase[testing_indices],
         second_phase=second_phase[testing_indices],
         total_insulin=total[testing_indices],
-        insulin_sensitivity=isi[testing_indices]
+        insulin_sensitivity=isi[testing_indices],
+        testing_indices=testing_indices
     )
 )
 

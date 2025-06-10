@@ -887,6 +887,6 @@ function clamp_insulin_figure(clamp_insulin_data, clamp_insulin_timepoints, type
 
     Legend(fig[2, 1], ax, orientation=:horizontal, merge=true)
     fig
-    save("figures/data/illustration_clamp_insulin.png", figure_clamp_insulin, px_per_unit=4)
+    save("figures/data/illustration_clamp_insulin.png", fig, px_per_unit=4)
 end
 

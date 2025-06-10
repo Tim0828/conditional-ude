@@ -4,6 +4,7 @@ quick_train = false
 figures = true
 n_best = 3
 
+dataset = "ohashi_low"
 # choose folder
 folder = "no_pooling"
 ####### imports #######
@@ -20,8 +21,11 @@ train_data, test_data = jldopen("data/ohashi.jld2") do file
     file["train"], file["test"]
 end
 
+(subject_numbers, subject_info_filtered, types, timepoints, glucose_indices, cpeptide_indices, ages,
+    body_weights, bmis, glucose_data, cpeptide_data, disposition_indices, first_phase, second_phase, isi, total) = load_data()
 # train on 70%, select on 30%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+metrics = [first_phase, second_phase, ages, isi, body_weights, bmis]
+indices_train, indices_validation = optimize_split(types, metrics, 0.7, rng)
 
 # define the neural network
 chain = neural_network_model(2, 6)
@@ -59,17 +63,17 @@ if train_model
     println("Training ADVI models...")
     # note that this function uses partial pooling for the training data
     nn_params, betas, betas_test, advi_model,
-    advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train,
+    advi_model_test, training_results = train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train, models_train,
         test_data, models_test, advi_iterations, advi_test_iterations)
 
     # Train betas for training with fixed neural network parameters for consistency
     println("Training betas on training data...")
     turing_model = partial_pooled_test(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
     betas, advi_model = train_ADVI(turing_model, advi_test_iterations, 10_000, 3, true)
-    	
+
     # Save the model
     if quick_train == false
-        save_model(folder)
+        save_model(folder, dataset)
     end
 
 else
@@ -79,13 +83,14 @@ else
         nn_params,
         betas,
         betas_test
-    ) = load_model(folder)
+    ) = load_model(folder, dataset)
 end
-    
+
 ######################### Plotting #########################
 if figures
     # Create models for plotting (if needed)
     turing_model = no_pooling(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
+
     turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
 
     println("Creating figures in figures/$folder...")
@@ -108,36 +113,33 @@ if figures
 
     # save MSE values
     save("data/$folder/mse.jld2", "objectives_current", objectives_current)
- 
-    #################### Model fit ####################
-    model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder) 
-    #################### Correlation Plots ####################
-    correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder)    
+
+    #################### Correlation Plots (adapted from 02-conditional.jl) ####################
+    correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder, dataset)
 
     ###################### Residual and QQ plots ######################
-    residualplot(test_data, nn_params, current_betas, models_test, folder)   
+    residualplot(test_data, nn_params, current_betas, current_models_subset, folder, dataset)
 
     ###################### MSE Violin Plot  ######################
-    mse_violin(objectives_current, current_types, folder)    
+    mse_violin(objectives_current, current_types, folder, dataset)
 
     #################### All Model Fits ####################
-    all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder)    
+    all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder, dataset)
 
     #################### Correlation Between Error and Physiological Metrics ####################
-    error_correlation(test_data, current_types, objectives_current, folder)   
+    error_correlation(test_data, current_types, objectives_current, folder, dataset)
 
     #################### Beta Posterior Plot ####################
     # Overall beta posterior plot
-    beta_posterior(turing_model, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder)   
+    beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder, dataset)
     # Beta posterior plots for each subject
     samples = 10_000
     beta_posteriors(turing_model_test, advi_model_test, folder, samples)
 
     #################### Euclidean Distance from Mean vs Error ####################
-    euclidean_distance(test_data, objectives_current, current_types, folder) 
+    euclidean_distance(test_data, objectives_current, current_types, folder, dataset)
 
     #################### Z-Score vs Error Correlation ####################
-    zscore_correlation(test_data, objectives_current, current_types, folder)
+    zscore_correlation(test_data, objectives_current, current_types, folder, dataset)
     println("All figures saved in figures/$folder")
 end
-

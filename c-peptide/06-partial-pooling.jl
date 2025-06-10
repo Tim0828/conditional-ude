@@ -1,8 +1,8 @@
 ######### settings ########
-train_model = false
+train_model = true
 quick_train = false
 figures = true
-n_best = 3
+n_best = 1
 dataset = "ohashi_low"
 
 # choose folder
@@ -14,12 +14,14 @@ if !isdir("data/$folder")
     mkpath("data/$folder")
 end
 ####### imports #######
-using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
+using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra, AdvancedVI
 using Bijectors: bijector
 
 include("src/c_peptide_ude_models.jl")
 include("src/plotting-functions.jl")
 include("src/VI_models.jl")
+include("src/preprocessing.jl")
+
 rng = StableRNG(232705)
 ######### data ########
 # Load the data
@@ -27,14 +29,13 @@ train_data, test_data = jldopen("data/$dataset.jld2") do file
     file["train"], file["test"]
 end
 
+(subject_numbers, subject_info_filtered, types, timepoints, glucose_indices, cpeptide_indices, ages,
+    body_weights, bmis, glucose_data, cpeptide_data, disposition_indices, first_phase, second_phase, isi, total) = load_data()
 
-if dataset == "ohashi_low"
-    # train on 50%, select on 50% (reduced dataset)
-    indices_train, indices_validation = stratified_split(rng, train_data.types, 0.5)
-else
-    # train on 70%, select on 30%
-    indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
-end
+# train on 70%, select on 30%
+subject_numbers_training = train_data.training_indices
+metrics_train = [first_phase[subject_numbers_training], second_phase[subject_numbers_training], ages[subject_numbers_training], isi[subject_numbers_training], body_weights[subject_numbers_training], bmis[subject_numbers_training]]
+indices_train, indices_validation = optimize_split(types[subject_numbers_training], metrics_train, 0.7, rng)
 
 # define the neural network
 chain = neural_network_model(2, 6)
@@ -44,7 +45,6 @@ t2dm = train_data.types .== "T2DM" # we filter on T2DM to compute the parameters
 models_train = [
     CPeptideCUDEModel(train_data.glucose[i, :], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i, :], t2dm[i]) for i in axes(train_data.glucose, 1)
 ]
-
 # create the models for the test data
 models_test = [
     CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
@@ -54,13 +54,13 @@ if train_model
     # Train the model
     if quick_train
         # Smaller number of iterations for testing
-        advi_iterations = 1
+        advi_iterations = 200
         advi_test_iterations = 1
-        n_samples = 10
+        n_samples = 5_000
     else
         # Larger number of iterations for full training
-        advi_iterations = 3000
-        advi_test_iterations = 4000
+        advi_iterations = 1000
+        advi_test_iterations = 2000
         n_samples = 25_000
     end
     # initial parameters
@@ -70,7 +70,7 @@ if train_model
     # Train the n best initial neural network sets
     println("Training ADVI models...")
     nn_params, betas, betas_test, advi_model,
-    advi_model_test, training_results = train_ADVI_models(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+    advi_model_test, training_results = train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
 
     # Train betas for training with fixed neural network parameters too for consistency
     println("Training betas on training data...")
@@ -122,9 +122,6 @@ if figures
 
     # save MSE values
     save("data/$folder/mse_$dataset.jld2", "objectives_current", objectives_current)
-
-    #################### Model fit  ####################
-    # model_fit(current_types, current_timepoints, current_models_subset, current_betas, nn_params, folder)
 
     #################### Correlation Plots (adapted from 02-conditional.jl) ####################
     correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder, dataset)
