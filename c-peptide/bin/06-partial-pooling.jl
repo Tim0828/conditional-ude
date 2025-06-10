@@ -1,8 +1,8 @@
 ######### settings ########
 train_model = true
 quick_train = false
-figures = true
-n_best = 1
+figures = false
+
 dataset = "ohashi_low"
 
 # choose folder
@@ -14,7 +14,7 @@ if !isdir("data/$folder")
     mkpath("data/$folder")
 end
 ####### imports #######
-using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra, AdvancedVI
+using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
 using Bijectors: bijector
 
 include("src/c_peptide_ude_models.jl")
@@ -54,14 +54,16 @@ if train_model
     # Train the model
     if quick_train
         # Smaller number of iterations for testing
-        advi_iterations = 200
+        advi_iterations = 1
         advi_test_iterations = 1
         n_samples = 5_000
+        n_best = 1
     else
         # Larger number of iterations for full training
         advi_iterations = 1000
         advi_test_iterations = 2000
         n_samples = 25_000
+        n_best = 3
     end
     # initial parameters
     result = get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best)

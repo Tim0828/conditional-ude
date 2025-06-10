@@ -4,6 +4,7 @@ using CSV, DataFrames, JLD2, StableRNGs, StatsBase, CairoMakie, Statistics, Dist
 rng = StableRNG(270523)
 
 include("src/plotting-functions.jl")
+include("src/c_peptide_ude_models.jl")
 include("src/preprocessing.jl")
 dataset = "ohashi_rich"
 f_train = 0.70
