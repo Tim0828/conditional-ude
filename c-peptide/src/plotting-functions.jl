@@ -74,7 +74,6 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
     Label(fig[0, 1:3], "Correlation Between β and Physiological Metrics",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
 
-    println(length(training_β)," ", length(train_data.first_phase[indices_train]))
     correlation_first = corspearman([training_β; test_β],
         [train_data.first_phase[indices_train]; test_data.first_phase])
     correlation_age = corspearman([training_β; test_β],

@@ -9,12 +9,12 @@ by simply changing the configuration at the top of the file.
 # Main settings - change these to control the experiment
 CONFIG = (
     # Model settings
-    pooling_type="no_pooling",  # "partial_pooling" or "no_pooling"
-    dataset="ohashi_rich", 
+    pooling_type="partial_pooling",  # "partial_pooling" or "no_pooling"
+    dataset="ohashi_low", 
 
     # Training settings
     train_model=true,
-    quick_train=true,  # Set to true for faster testing
+    quick_train=false,  # Set to true for faster testing
     
 
     # Analysis settings
@@ -29,12 +29,13 @@ CONFIG = (
     # Quick training parameters (used if quick_train)
     quick_advi_iterations=1,
     quick_advi_test_iterations=1,
-    quick_n_samples=1,
+    quick_n_samples=10_000,
     quick_n_best=1
 )
 
 # Derived settings
 folder = CONFIG.pooling_type
+dataset = CONFIG.dataset
 
 println("="^60)
 println("ADVI ANALYSIS")
@@ -113,7 +114,7 @@ if CONFIG.train_model
     println("Training initial ADVI models...")
     nn_params, betas_training, betas_test, advi_model, advi_model_test, training_results = train_ADVI_models_unified(
         CONFIG.pooling_type, initial_nn_sets, train_data, indices_train, models_train,
-        test_data, models_test, advi_iterations, advi_iterations, CONFIG.dataset)
+        test_data, models_test, advi_iterations, advi_iterations, dataset)
 
     println("Training test betas with fixed neural network parameters...")
     turing_model_test = get_turing_models(
@@ -124,14 +125,14 @@ if CONFIG.train_model
     # Save the model (only if not quick training)
     if !CONFIG.quick_train
         println("Saving model...")
-        save_model(folder, CONFIG.dataset, advi_model, advi_model_test, nn_params, betas_training, betas_test)
+        save_model(folder, dataset, advi_model, advi_model_test, nn_params, betas_training, betas_test)
     end
 
     println("Training completed!")
 
 else
     println("\nLoading pre-trained model...")
-    (advi_model, advi_model_test, nn_params, betas_training, betas_test) = load_model(folder, CONFIG.dataset)
+    (advi_model, advi_model_test, nn_params, betas_training, betas_test) = load_model(folder, dataset)
     println("Model loaded!")
 end
 
@@ -177,7 +178,7 @@ if CONFIG.figures
     end
 
     # Save MSE values
-    save("data/$folder/mse.jld2", "objectives_current", objectives_current)
+    save("data/$folder/mse_$dataset.jld2", "objectives_current", objectives_current)
 
     # Generate all plots
     correlation_figure(betas_training, current_betas, train_data, test_data, indices_train, folder, CONFIG.dataset)
