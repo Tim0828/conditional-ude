@@ -9,8 +9,8 @@ by simply changing the configuration at the top of the file.
 # Main settings - change these to control the experiment
 CONFIG = (
     # Model settings
-    pooling_type="partial_pooling",  # "partial_pooling" or "no_pooling"
-    dataset="ohashi_low", 
+    pooling_type="no_pooling",  # "partial_pooling" or "no_pooling"
+    dataset="ohashi_rich", 
 
     # Training settings
     train_model=true,
