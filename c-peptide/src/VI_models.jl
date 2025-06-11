@@ -10,10 +10,9 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
         validation_models = models_train[indices_validation]
         # initiate nn-params
         nn_params = init_params(models_train[j].chain)
-
-        # Sample betas from a normal distribution
-        μ_beta_dist = Normal(0.0, 10.0)
         betas = Vector{Float64}(undef, length(validation_models))
+        # Sample betas from a normal distribution
+        μ_beta_dist = Normal(-2.0, 10.0)
         for i in eachindex(validation_models)
             betas[i] = rand(μ_beta_dist)
         end
@@ -79,7 +78,7 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, priors=nothing, ::Type{T}=Float64) where T
     # Use estimated or default priors
     if isnothing(priors)
-        μ_beta ~ Normal(0.0, 10.0)  # Default fallback
+        μ_beta ~ Normal(-2.0, 10.0)  # Default fallback
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
     end
@@ -112,7 +111,7 @@ end
 @model function partial_pooled_test(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
-    μ_beta ~ Normal(0.0, 10.0)
+    μ_beta ~ Normal(-2.0, 10.0)
     σ_beta ~ InverseGamma(2, 3)
 
     # distribution for the individual model parameters
@@ -141,7 +140,7 @@ end
 
     # Use estimated or default priors
     if isnothing(priors)
-        μ_beta = 0.0
+        μ_beta = -2.0  # Default fallback
     else
         μ_beta = priors.μ_beta_estimate  # Data-driven prior
     end
@@ -150,7 +149,7 @@ end
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
         # Each β gets its own independent prior
-        β[i] ~ Normal(0, 10.0)  # Wide prior since we're not pooling information
+        β[i] ~ Normal(-2.0, 10.0)  # Wide prior since we're not pooling information
     end
 
     # Neural network parameters
@@ -175,7 +174,7 @@ end
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
         # Each β gets its own independent prior
-        β[i] ~ Normal(0.0, 10.0)  # Wide prior since we're not pooling information
+        β[i] ~ Normal(-2.0, 10.0)  # Wide prior since we're not pooling information
     end
 
     # Neural network parameters
@@ -217,7 +216,7 @@ function load_model(folder, dataset)
     )
 end
 
-function save_model(folder, dataset)
+function save_model(folder, dataset, advi_model, advi_model_test, nn_params, betas, betas_test)
     save("data/$folder/advi_model_$dataset.jld2", "advi_model", advi_model)
     save("data/$folder/advi_model_test_$dataset.jld2", "advi_model_test", advi_model_test)
     save("data/$folder/nn_params_$dataset.jld2", "nn_params", nn_params)
@@ -225,7 +224,7 @@ function save_model(folder, dataset)
     save("data/$folder/betas_test_$dataset.jld2", "betas_test", betas_test)
 end
 
-function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     training_results = DataFrame(nn_params=Vector[], betas_test=Vector[], betas=Vector[], loss=Float64[], j=Int[])
     advi_models = []
     advi_models_test = []
@@ -292,7 +291,7 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
 
 end
 
-function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     training_results = DataFrame(nn_params=Vector[], betas_test=Vector[], betas=Vector[], loss=Float64[], j=Int[])
     advi_models = []
     advi_models_test = []
@@ -396,23 +395,23 @@ function estimate_priors(train_data, models, nn_params)
 
     # Calculate statistics for priors
     if isempty(beta_estimates)
-        μ_beta_estimate = 0.0
+        μ_beta_estimate = -2.0
         σ_beta_estimate = 10.0
         println("Warning: No valid beta estimates. Using defaults: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
     else
         μ_beta_estimate = mean(beta_estimates)
-        σ_beta_estimate = max(1.0, std(beta_estimates)) # Ensure σ_beta is not too small
+        σ_beta_estimate = max(5.0, 1.2*std(beta_estimates)) # Ensure σ_beta is not too small
         println("Estimated μ_beta: $μ_beta_estimate, σ_beta: $σ_beta_estimate from $(length(beta_estimates)) subjects")
     end
 
     # Return suggested priors
     return (
-        μ_beta_prior=Normal(μ_beta_estimate, 1.2 * σ_beta_estimate),
+        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate),
         σ_beta_prior=InverseGamma(2.0, max(3.0, 1.2 * σ_beta_estimate)),
         μ_beta_estimate=μ_beta_estimate)
 end
 
-function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     """
     Unified training function that can handle both partial pooling and no pooling
     
@@ -434,11 +433,11 @@ function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, in
     if pooling_type == "partial_pooling"
         return train_ADVI_models_partial_pooling(
             initial_nn_sets, train_data, indices_train, models_train,
-            test_data, models_test, advi_iterations, advi_test_iterations)
+            test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     elseif pooling_type == "no_pooling"
         return train_ADVI_models_no_pooling(
             initial_nn_sets, train_data, indices_train, models_train,
-            test_data, models_test, advi_iterations, advi_test_iterations)
+            test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     else
         error("Invalid pooling_type: $pooling_type. Choose 'partial_pooling' or 'no_pooling'")
     end

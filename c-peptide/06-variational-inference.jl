@@ -1,5 +1,5 @@
 """
-Configuration-based AVDI script
+Configuration-based ADVI script
 
 This script provides an easy way to run either partial pooling or no pooling models
 by simply changing the configuration at the top of the file.
@@ -14,17 +14,17 @@ CONFIG = (
 
     # Training settings
     train_model=true,
-    quick_train=false,  # Set to true for faster testing
+    quick_train=true,  # Set to true for faster testing
     
 
     # Analysis settings
     figures=true,
 
     # Training parameters (used if not quick_train)
-    advi_iterations=200,
+    advi_iterations=2000,
     advi_test_iterations=2000,
     n_samples=50_000,
-    n_best=10,
+    n_best=3,
 
     # Quick training parameters (used if quick_train)
     quick_advi_iterations=1,
@@ -54,6 +54,7 @@ using Bijectors: bijector
 include("src/c_peptide_ude_models.jl")
 include("src/plotting-functions.jl")
 include("src/VI_models.jl")
+include("src/preprocessing.jl")
 
 rng = StableRNG(232705)
 
@@ -65,11 +66,6 @@ end
 
 (subject_numbers, subject_info_filtered, types, timepoints, glucose_indices, cpeptide_indices, ages,
     body_weights, bmis, glucose_data, cpeptide_data, disposition_indices, first_phase, second_phase, isi, total) = load_data()
-
-# train on 70%, select on 30%
-subject_numbers_training = train_data.training_indices
-metrics_train = [first_phase[subject_numbers_training], second_phase[subject_numbers_training], ages[subject_numbers_training], isi[subject_numbers_training], body_weights[subject_numbers_training], bmis[subject_numbers_training]]
-indices_train, indices_validation = optimize_split(types[subject_numbers_training], metrics_train, 0.7, rng)
 
 # define the neural network
 chain = neural_network_model(2, 6)
@@ -83,6 +79,11 @@ models_train = [
 models_test = [
     CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
 ]
+
+# train on 70%, select on 30%
+subject_numbers_training = train_data.training_indices
+metrics_train = [first_phase[subject_numbers_training], second_phase[subject_numbers_training], ages[subject_numbers_training], isi[subject_numbers_training], body_weights[subject_numbers_training], bmis[subject_numbers_training]]
+indices_train, indices_validation = optimize_split(types[subject_numbers_training], metrics_train, 0.7, rng)
 
 ######### TRAINING ########
 if CONFIG.train_model
@@ -110,15 +111,9 @@ if CONFIG.train_model
 
     # Train the model using unified function
     println("Training initial ADVI models...")
-    nn_params, betas, betas_test, advi_model, advi_model_test, training_results = train_ADVI_models_unified(
+    nn_params, betas_training, betas_test, advi_model, advi_model_test, training_results = train_ADVI_models_unified(
         CONFIG.pooling_type, initial_nn_sets, train_data, indices_train, models_train,
-        test_data, models_test, advi_iterations, advi_iterations)
-
-    println("Training best ADVI model...")
-    turing_model = get_turing_models(
-        CONFIG.pooling_type, train_data.cpeptide[indices_train, :], train_data.timepoints,
-        models_train[indices_train], nn_params, false)
-    betas, advi_model = train_ADVI(turing_model, advi_test_iterations, 10_000, 3, false)
+        test_data, models_test, advi_iterations, advi_iterations, CONFIG.dataset)
 
     println("Training test betas with fixed neural network parameters...")
     turing_model_test = get_turing_models(
@@ -129,14 +124,14 @@ if CONFIG.train_model
     # Save the model (only if not quick training)
     if !CONFIG.quick_train
         println("Saving model...")
-        save_model(folder, CONFIG.dataset)
+        save_model(folder, CONFIG.dataset, advi_model, advi_model_test, nn_params, betas_training, betas_test)
     end
 
     println("Training completed!")
 
 else
     println("\nLoading pre-trained model...")
-    (advi_model, advi_model_test, nn_params, betas, betas_test) = load_model(folder, CONFIG.dataset)
+    (advi_model, advi_model_test, nn_params, betas_training, betas_test) = load_model(folder, CONFIG.dataset)
     println("Model loaded!")
 end
 
@@ -165,7 +160,6 @@ println("  Std MSE: $(round(std(objectives_current), digits=4))")
 ######### FIGURES ########
 if CONFIG.figures
     println("\nGenerating figures...")
-
     # Create models for plotting
     turing_model_train = get_turing_models(
         CONFIG.pooling_type, train_data.cpeptide[indices_train, :], train_data.timepoints,
@@ -186,7 +180,7 @@ if CONFIG.figures
     save("data/$folder/mse.jld2", "objectives_current", objectives_current)
 
     # Generate all plots
-    correlation_figure(betas, current_betas, train_data, test_data, indices_train, folder, CONFIG.dataset)
+    correlation_figure(betas_training, current_betas, train_data, test_data, indices_train, folder, CONFIG.dataset)
     residualplot(test_data, nn_params, current_betas, current_models_subset, folder, CONFIG.dataset)
     mse_violin(objectives_current, current_types, folder, CONFIG.dataset)
     all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder, CONFIG.dataset)
@@ -194,7 +188,7 @@ if CONFIG.figures
     beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder, CONFIG.dataset)
 
     samples = 10_000
-    beta_posteriors(turing_model_test, advi_model_test, folder, samples)
+    beta_posteriors(turing_model_test, advi_model_test, folder, CONFIG.dataset, samples)
     euclidean_distance(test_data, objectives_current, current_types, folder, CONFIG.dataset)
     zscore_correlation(test_data, objectives_current, current_types, folder, CONFIG.dataset)
 

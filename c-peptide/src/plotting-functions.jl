@@ -65,6 +65,8 @@ function model_fit(types, timepoints, models, betas, nn_params, folder)
 end
 
 function correlation_figure(training_β, test_β, train_data, test_data, indices_train, folder, dataset)
+    # training_β = training_β[indices_train]
+    
     fig = Figure(size=(1200, 800))
     
 
@@ -72,6 +74,7 @@ function correlation_figure(training_β, test_β, train_data, test_data, indices
     Label(fig[0, 1:3], "Correlation Between β and Physiological Metrics",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
 
+    println(length(training_β)," ", length(train_data.first_phase[indices_train]))
     correlation_first = corspearman([training_β; test_β],
         [train_data.first_phase[indices_train]; test_data.first_phase])
     correlation_age = corspearman([training_β; test_β],
@@ -777,7 +780,7 @@ function plot_validation_error(best_losses, folder, dataset)
     return fig
 end
 
-function beta_posteriors(turing_model, advi_model, folder, samples=50_000)
+function beta_posteriors(turing_model, advi_model, folder, dataset, samples=50_000)
     z = rand(advi_model, samples)
     _, sym2range = bijector(turing_model, Val(true))
     sampled_betas = z[union(sym2range[:β]...), :] # sampled beta parameters
