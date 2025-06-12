@@ -1,8 +1,8 @@
 # Model fit to the train data and evaluation on the test data
-train_model = true
+train_model = false
 figures = true
 folder = "MLE"
-dataset = "ohashi_low"
+dataset = "ohashi_rich"
 extension = "png"
 pt = 4/3
 
@@ -94,6 +94,12 @@ objectives_test = [optsol.objective for optsol in optsols]
 
 function argmedian(x)
     return argmin(abs.(x .- median(x)))
+end
+
+# save betas 
+jldopen("data/MLE/betas_$dataset.jld2", "w") do file
+    file["train"] = betas_train
+    file["test"] = betas_test
 end
 
 # save mse

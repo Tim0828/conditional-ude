@@ -1,4 +1,4 @@
-function get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best=1)
+function get_initial_parameters(train_data, indices_train, models_train, n_samples, n_best=1)
     #### validation of initial parameters ####
     all_results = DataFrame(iteration=Int[], loss=Float64[], nn_params=Vector[])
     println("Evaluating $n_samples initial parameter sets...")
@@ -6,14 +6,14 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
     prog = Progress(n_samples; dt=0.01, desc="Evaluating initial parameter samples... ", showspeed=true, color=:firebrick)
     for i = 1:n_samples
 
-        j = indices_validation[1]
-        validation_models = models_train[indices_validation]
+        j = indices_train[1]
+        training_models = models_train[indices_train]
         # initiate nn-params
         nn_params = init_params(models_train[j].chain)
-        betas = Vector{Float64}(undef, length(validation_models))
+        betas = Vector{Float64}(undef, length(training_models))
         # Sample betas from a normal distribution
         μ_beta_dist = Normal(-2.0, 10.0)
-        for i in eachindex(validation_models)
+        for i in eachindex(training_models)
             betas[i] = rand(μ_beta_dist)
         end
 
@@ -23,7 +23,7 @@ function get_initial_parameters(train_data, indices_validation, models_train, n_
                 train_data.cpeptide[idx, :],
                 ADVI_predict(betas[i], nn_params, models_train[idx].problem, train_data.timepoints)
             )
-            for (i, idx) in enumerate(indices_validation)
+            for (i, idx) in enumerate(indices_train)
         ]
         mean_mse = mean(objectives)
 
@@ -224,12 +224,9 @@ function save_model(folder, dataset, advi_model, advi_model_test, nn_params, bet
     save("data/$folder/betas_test_$dataset.jld2", "betas_test", betas_test)
 end
 
-function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
-    training_results = DataFrame(nn_params=Vector[], betas_test=Vector[], betas=Vector[], loss=Float64[], j=Int[])
+function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
+    training_results = DataFrame(nn_params=Vector[], betas=Vector[], loss=Float64[], j=Int[])
     advi_models = []
-    advi_models_test = []
-
-
 
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
@@ -247,31 +244,24 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
 
         # train conditional model
         println("Training on training data...")
-        local nn_params, betas, advi_model = train_ADVI(turing_model_train, advi_iterations)
+        local nn_params, betas_train, advi_model = train_ADVI(turing_model_train, advi_iterations)
 
-        # fixed parameters for the test data
-        println("Training betas on test data...")
-        local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
-
-        # train the conditional parameters for the test data
-        local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
-
-        # Evaluate on test data
-        local objectives_current = [
+        # Evaluate on validation data
+        models_validation = models_train[indices_validation]
+        local objectives_validation = [
             calculate_mse(
-                test_data.cpeptide[i, :],
-                ADVI_predict(betas_test[i], nn_params, models_test[i].problem, test_data.timepoints)
+                train_data.cpeptide[idx, :],
+                ADVI_predict(betas_train[i], nn_params, models_validation[i].problem, train_data.timepoints)
             )
-            for i in eachindex(betas_test)
+            for (i, idx) in enumerate(indices_validation)
         ]
 
+        mean_objective = mean(objectives_validation)
+        println("Mean MSE for current model on the validation set: $mean_objective")
 
-        mean_objective = mean(objectives_current)
-        println("Mean MSE for current model: $mean_objective")
-        # Store the results
-        push!(training_results, (nn_params=copy(nn_params), betas_test=copy(betas_test), betas=copy(betas), loss=mean_objective, j=j))
+        # Store the results (without test betas for now)
+        push!(training_results, (nn_params=copy(nn_params), betas=copy(betas_train), loss=mean_objective, j=j))
         push!(advi_models, advi_model)
-        push!(advi_models_test, advi_model_test)
         next!(prog)
     end
 
@@ -279,13 +269,17 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
     sort!(training_results, :loss)
     best_result = first(training_results, 1)
     nn_params = best_result.nn_params[1]
-    betas_test = best_result.betas_test[1]
     betas = best_result.betas[1]
     advi_model = advi_models[best_result.j[1]]
-    advi_model_test = advi_models_test[best_result.j[1]]
     println("Best loss: ", best_result.loss)
-    save("data/partial_pooling/training_results_$dataset.jld2", "training_results", training_results)
 
+    # Only train test betas for the best model
+    println("Training betas on test data for the best model...")
+    local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
+    # train the conditional parameters for the test data
+    local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+
+    save("data/partial_pooling/training_results_$dataset.jld2", "training_results", training_results)
 
     return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
 
@@ -400,7 +394,7 @@ function estimate_priors(train_data, models, nn_params)
         println("Warning: No valid beta estimates. Using defaults: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
     else
         μ_beta_estimate = mean(beta_estimates)
-        σ_beta_estimate = max(5.0, 1.2*std(beta_estimates)) # Ensure σ_beta is not too small
+        σ_beta_estimate = max(5.0, 1.2 * std(beta_estimates)) # Ensure σ_beta is not too small
         println("Estimated μ_beta: $μ_beta_estimate, σ_beta: $σ_beta_estimate from $(length(beta_estimates)) subjects")
     end
 
@@ -411,7 +405,7 @@ function estimate_priors(train_data, models, nn_params)
         μ_beta_estimate=μ_beta_estimate)
 end
 
-function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
+function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     """
     Unified training function that can handle both partial pooling and no pooling
     
@@ -420,11 +414,13 @@ function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, in
         initial_nn_sets: Initial neural network parameter sets
         train_data: Training data
         indices_train: Training indices
+        indices_validation: Validation indices
         models_train: Training models
         test_data: Test data
         models_test: Test models
         advi_iterations: ADVI iterations for training
         advi_test_iterations: ADVI iterations for test
+        dataset: Dataset name
     
     Returns:
         nn_params, betas, betas_test, advi_model, advi_model_test, training_results
@@ -432,7 +428,7 @@ function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, in
 
     if pooling_type == "partial_pooling"
         return train_ADVI_models_partial_pooling(
-            initial_nn_sets, train_data, indices_train, models_train,
+            initial_nn_sets, train_data, indices_train, indices_validation, models_train,
             test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     elseif pooling_type == "no_pooling"
         return train_ADVI_models_no_pooling(
@@ -475,4 +471,54 @@ function get_turing_models(pooling_type, data, timepoints, models, neural_networ
     else
         error("Invalid pooling_type: $pooling_type. Choose 'partial_pooling' or 'no_pooling'")
     end
+end
+
+function load_models(subject_types, model_types, datasets)
+    models = Dict{String,Any}()
+    for dataset in datasets
+        for folder in model_types
+            # Load the models
+            println("Loading models from $folder for dataset $dataset...")
+            try
+
+
+                if folder == "MLE"
+                    # load the mse values
+                    mse_values = JLD2.load("data/$folder/mse_$dataset.jld2", "test")
+                    neural_network_parameters = try
+                        jldopen("data/$folder/cude_neural_parameters$dataset.jld2") do file
+                            file["parameters"]
+                        end
+                    catch
+                        error("Trained weights not found! Please train the model first by setting train_model to true")
+                    end
+                    betas_training, betas_test = jldopen("data/$folder/betas_$dataset.jld2") do file
+                        file["train"], file["test"]
+                    end
+                    models["$(dataset)_$(folder)"] = Dict(
+                        "mse" => mse_values,
+                        "nn" => neural_network_parameters,
+                        "beta_train" => betas_training,
+                        "beta_test" => betas_test
+                    )
+
+                else
+                    mse_values = JLD2.load("data/$folder/mse_$dataset.jld2", "objectives_current")
+                    # Load the model files
+                    (advi_model, advi_model_test, nn_params, betas_training, betas_test) = load_model(folder, dataset)
+                    models["$(dataset)_$(folder)"] = Dict(
+                        "advi" => advi_model,
+                        "advi_test" => advi_model_test,
+                        "nn" => nn_params,
+                        "beta_train" => betas_training,
+                        "beta_test" => betas_test,
+                        "mse" => mse_values)
+                end
+            catch e
+                println("Error loading model from $folder for dataset $dataset: ", e)
+                continue
+            end
+        end
+    end
+    return models
 end

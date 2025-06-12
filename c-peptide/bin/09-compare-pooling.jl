@@ -84,8 +84,8 @@ for pooling_type in pooling_types
 
         nn_params, betas, betas_test, advi_model,
         advi_model_test, training_results = train_ADVI_models_unified(
-            pooling_type, initial_nn_sets, train_data, indices_train, models_train,
-            test_data, models_test, advi_iterations, advi_test_iterations)
+            pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train,
+            test_data, models_test, advi_iterations, advi_test_iterations, dataset)
 
         # Train betas for training with fixed neural network parameters for consistency
         println("Training betas on training data...")
