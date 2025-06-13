@@ -1,3 +1,12 @@
+####### IMPORTS #######
+using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
+using Bijectors: bijector
+
+include("src/c_peptide_ude_models.jl")
+include("src/plotting-functions.jl")
+include("src/VI_models.jl")
+include("src/preprocessing.jl")
+
 function cude_vi(CONFIG)
     """
     Configuration-based ADVI script
@@ -49,14 +58,7 @@ function cude_vi(CONFIG)
     println("  Figures: $(CONFIG.figures)")
     println("="^60)
 
-    ####### IMPORTS #######
-    using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra
-    using Bijectors: bijector
-
-    include("src/c_peptide_ude_models.jl")
-    include("src/plotting-functions.jl")
-    include("src/VI_models.jl")
-    include("src/preprocessing.jl")
+    
 
     rng = StableRNG(232705)
 
@@ -179,11 +181,18 @@ function cude_vi(CONFIG)
         # Save MSE values
         save("data/$folder/mse_$dataset.jld2", "objectives_current", objectives_current)
 
+        # Compute DIC for the test set
+        dic = compute_dic(advi_model_test, turing_model_test, test_data.cpeptide, models_test, nn_params, test_data.timepoints)
+        println("DIC for $(CONFIG.pooling_type) on $(CONFIG.dataset): ", round(dic, digits=2))
+
+        # save DIC 
+        save("data/$folder/dic_$dataset.jld2", "dic", dic)
+        
         # Generate all plots
         correlation_figure(betas_training, current_betas, train_data, test_data, indices_train, folder, CONFIG.dataset)
         residualplot(test_data, nn_params, current_betas, current_models_subset, folder, CONFIG.dataset)
         mse_violin(objectives_current, current_types, folder, CONFIG.dataset)
-        all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, folder, CONFIG.dataset)
+        all_model_fits(current_cpeptide, current_models_subset, nn_params, current_betas, current_timepoints, current_types, folder, CONFIG.dataset)
         error_correlation(test_data, current_types, objectives_current, folder, CONFIG.dataset)
         beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder, CONFIG.dataset)
 
@@ -208,7 +217,7 @@ function cude_vi(CONFIG)
     println("="^60)
 end
 
-pooling_types = ["partial_pooling", "no_pooling"]
+pooling_types = ["no_pooling"]
 # datasets 
 datasets = ["ohashi_rich", "ohashi_low"]
 
@@ -221,16 +230,17 @@ for pooling_type in pooling_types
 
             # Training settings
             train_model=true,
+
             quick_train=false,  # Set to true for faster testing
 
 
             # Analysis settings
-            figures=true,
+            figures=false,
 
             # Training parameters (used if not quick_train)
             advi_iterations=2000,
             advi_test_iterations=2000,
-            n_samples=50_000,
+            n_samples=25_000,
             n_best=3,
 
             # Quick training parameters (used if quick_train)

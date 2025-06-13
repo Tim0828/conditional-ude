@@ -285,10 +285,10 @@ function mse_violin(objectives, types, folder, dataset)
     save("figures/$folder/mse_violin_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function all_model_fits(cpeptide, models, nn_params, betas, timepoints, folder, dataset)
+function all_model_fits(cpeptide, models, nn_params, betas, timepoints, current_types, folder, dataset)
     # Create a large figure with a grid layout for all subjects
     n_subjects = length(betas[:, 1])
-    n_cols = 4  # Adjust number of columns as needed
+    n_cols = 5  # Adjust number of columns as needed
     n_rows = ceil(Int, n_subjects / n_cols)
 
     fig = Figure(size=(200 * n_cols, 150 * n_rows))

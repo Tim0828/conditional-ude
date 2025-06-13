@@ -395,14 +395,14 @@ function estimate_priors(train_data, models, nn_params)
     else
         μ_beta_estimate = mean(beta_estimates)
         σ_beta_estimate = max(5.0, 1.2 * std(beta_estimates)) # Ensure σ_beta is not too small
-        println("Estimated μ_beta: $μ_beta_estimate, σ_beta: $σ_beta_estimate from $(length(beta_estimates)) subjects")
+        println("Estimated μ_beta: $(min(-4.0, max(μ_beta_estimate, 3.0))), σ_beta: $σ_beta_estimate from $(length(beta_estimates)) subjects")
     end
 
     # Return suggested priors
     return (
-        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate),
-        σ_beta_prior=InverseGamma(2.0, max(3.0, 1.2 * σ_beta_estimate)),
-        μ_beta_estimate=μ_beta_estimate)
+        μ_beta_prior=Normal(min(-4.0, max(μ_beta_estimate, 3.0)), σ_beta_estimate), # ensure μ_beta is not too extreme
+        σ_beta_prior=InverseGamma(2.0, max(3.0, 1.2 * σ_beta_estimate)), # ensure σ_beta is not too small
+        μ_beta_estimate=min(-4.0, max(μ_beta_estimate, 3.0))) # ensure μ_beta is not too extreme
 end
 
 function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
@@ -522,3 +522,58 @@ function load_models(subject_types, model_types, datasets)
     end
     return models
 end
+
+function compute_dic(advi_model, turing_model, data, models, nn_params, timepoints; n_samples=1000)
+    # Get posterior samples
+    _, sym2range = bijector(turing_model, Val(true))
+    z = rand(advi_model, n_samples)
+    betas_samples = z[union(sym2range[:β]...), :]
+    has_nn = :nn in keys(sym2range)
+    if has_nn
+        nn_samples = z[union(sym2range[:nn]...), :]
+    else
+        nn_samples = repeat(nn_params, 1, n_samples)
+    end
+
+    # Compute deviance for each sample
+    devs = zeros(n_samples)
+    for s in 1:n_samples
+        betas = betas_samples[:, s]
+        nn = has_nn ? nn_samples[:, s] : nn_params
+        loglik = 0.0
+        for i in eachindex(models)
+            pred = ADVI_predict(betas[i], nn, models[i].problem, timepoints)
+            obs = data[i, :]
+            valid = .!ismissing.(obs) .& .!ismissing.(pred)
+            if any(valid)
+                # Assume Gaussian likelihood with estimated variance from model
+                resid = obs[valid] .- pred[valid]
+                σ2 = var(resid)
+                σ2 = σ2 > 0 ? σ2 : 1e-6
+                loglik += sum(logpdf.(Normal(0, sqrt(σ2)), resid))
+            end
+        end
+        devs[s] = -2 * loglik
+    end
+
+    # Posterior mean parameters
+    mean_betas = mean(betas_samples, dims=2)[:]
+    mean_nn = has_nn ? mean(nn_samples, dims=2)[:] : nn_params
+    loglik_mean = 0.0
+    for i in eachindex(models)
+        pred = ADVI_predict(mean_betas[i], mean_nn, models[i].problem, timepoints)
+        obs = data[i, :]
+        valid = .!ismissing.(obs) .& .!ismissing.(pred)
+        if any(valid)
+            resid = obs[valid] .- pred[valid]
+            σ2 = var(resid)
+            σ2 = σ2 > 0 ? σ2 : 1e-6
+            loglik_mean += sum(logpdf.(Normal(0, sqrt(σ2)), resid))
+        end
+    end
+    dev_mean = -2 * loglik_mean
+
+    dic = 2 * mean(devs) - dev_mean
+    return dic
+end
+
