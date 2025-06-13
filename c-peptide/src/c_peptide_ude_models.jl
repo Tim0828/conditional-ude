@@ -496,8 +496,8 @@ Trains a c-peptide model with a neural network for c-peptide production using th
 function train(model::CPeptideUDEModel, timepoints::AbstractVector{T}, cpeptide_data::AbstractVector{T}, rng::AbstractRNG;
     initial_guesses::Int = 10_000,
     selected_initials::Int = 10,
-    number_of_iterations_adam::Int = 1000,
-    number_of_iterations_lbfgs::Int = 1000,
+    number_of_iterations_adam::Int = 2000,
+    number_of_iterations_lbfgs::Int = 2000,
     learning_rate_adam::Real = 1e-2) where T <: Real
 
     # sample initial parameters

@@ -395,7 +395,7 @@ function error_correlation(data, types, objectives, folder, dataset)
     save("figures/$folder/error_correlations_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, folder, dataset)
+function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, test_data, folder, dataset)
     fig = Figure(size=(1600, 600))
 
     # Extract posterior samples for beta
@@ -416,8 +416,8 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
         limits=(-10, 10, nothing, nothing)  # Limit x-axis to 0-5
     )
 
-    # # Plot overall density
-    # density!(ax1, vec(sampled_betas), color=(Makie.wong_colors()[1], 0.3), label="Overall")
+    # Plot overall density
+    density!(ax1, vec(sampled_betas), color=(Makie.wong_colors()[4], 0.5), label="Overall")
 
     # Plot density by subject type
     subject_types = unique(train_data.types[indices_train]) # doesnt matter test or train
@@ -444,8 +444,8 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
         limits=(-10, 10, nothing, nothing)
     )
 
-    # # Plot overall density
-    # density!(ax2, vec(sampled_betas_test), color=(Makie.wong_colors()[1], 0.3), label="Overall")
+    # Plot overall density
+    density!(ax2, vec(sampled_betas_test), color=(Makie.wong_colors()[4], 0.5), label="Overall")
 
     # Plot density by subject type
     for (i, type_val) in enumerate(subject_types)

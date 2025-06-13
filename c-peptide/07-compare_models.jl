@@ -167,6 +167,84 @@ for dataset in datasets
     mse_partial = models["$(dataset)_partial_pooling"]["mse"]
     mse_no_pool = models["$(dataset)_no_pooling"]["mse"]
 
+    # Create combined violin plot for methods comparison within dataset
+    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+    fig = Figure(size=(800, 600))
+    ax = Axis(fig[1, 1],
+        xlabel="Patient Type",
+        ylabel="Mean Squared Error",
+        title="MSE Comparison Across Methods - $dataset Dataset")
+
+    # Define colors for each method
+    method_colors = Dict(
+        "MLE" => Makie.wong_colors()[1],
+        "Partial_Pooling" => Makie.wong_colors()[2],
+        "No_Pooling" => Makie.wong_colors()[3]
+    )
+
+    unique_types = ["NGT", "IGT", "T2DM"]
+    method_order = ["MLE", "Partial_Pooling", "No_Pooling"]
+    jitter_width = 0.08
+    violin_width = 0.25
+
+    # Plot for each type and method combination
+    for (type_idx, type) in enumerate(unique_types)
+        type_indices = get_subject_type_indices(current_test_data, type)
+
+        for (method_idx, method) in enumerate(method_order)
+            # Get MSE data for this type and method
+            if method == "MLE"
+                mse_values = mse_mle[type_indices]
+            elseif method == "Partial_Pooling"
+                mse_values = mse_partial[type_indices]
+            else  # No_Pooling
+                mse_values = mse_no_pool[type_indices]
+            end
+
+            if !isempty(mse_values)
+                # Calculate x-position
+                x_center = type_idx
+                x_offset = (method_idx - 2) * 0.3
+                x_pos = x_center + x_offset
+
+                # Plot violin
+                violin!(ax, fill(x_pos, length(mse_values)), mse_values,
+                    color=(method_colors[method], 0.6),
+                    width=violin_width,
+                    strokewidth=1, side=:right)
+
+                # Add jittered scatter points
+                scatter_offset = -0.07
+                jitter = scatter_offset .+ (rand(length(mse_values)) .- 0.5) .* jitter_width
+                scatter!(ax, fill(x_pos, length(mse_values)) .+ jitter, mse_values,
+                    color=(method_colors[method], 0.8),
+                    markersize=3)
+
+                # Add mean marker
+                mean_val = mean(mse_values)
+                scatter!(ax, [x_pos], [mean_val],
+                    color=:black,
+                    markersize=8,
+                    marker=:diamond)
+            end
+        end
+    end
+
+    # Set x-axis ticks and labels
+    ax.xticks = (1:length(unique_types), unique_types)
+
+    # Create legend
+    legend_elements = [
+        [PolyElement(color=(method_colors[method], 0.6)) for method in method_order]...,
+        MarkerElement(color=:black, marker=:diamond, markersize=8)
+    ]
+    legend_labels = ["MLE", "Partial Pooling", "No Pooling", "Mean"]
+    Legend(fig[1, 2], legend_elements, legend_labels, "Method")
+
+    # Save the plot
+    save("figures/combined_mse_violin_methods_$(dataset).png", fig)
+    println("Violin plot saved: figures/combined_mse_violin_methods_$(dataset).png")
+
     # Pairwise comparisons
     perform_paired_ttest(mse_mle, mse_partial, "MLE", "Partial Pooling",
         "Model comparison within $dataset dataset")
@@ -228,6 +306,83 @@ for model_type in model_types
     # Get MSE values for each dataset
     mse_rich = models["ohashi_rich_$model_type"]["mse"]
     mse_low = models["ohashi_low_$model_type"]["mse"]
+
+    # Create combined violin plot for dataset comparison
+    fig = Figure(size=(800, 600))
+    ax = Axis(fig[1, 1],
+        xlabel="Patient Type",
+        ylabel="Mean Squared Error",
+        title="MSE Comparison Between Datasets - $model_type Model")
+
+    # Define colors for each dataset
+    dataset_colors = Dict(
+        "Ohashi_Rich" => Makie.wong_colors()[1],
+        "Ohashi_Low" => Makie.wong_colors()[2]
+    )
+
+    unique_types = ["NGT", "IGT", "T2DM"]
+    dataset_order = ["Ohashi_Rich", "Ohashi_Low"]
+    jitter_width = 0.08
+    violin_width = 0.35
+
+    # Plot for each type and dataset combination
+    for (type_idx, type) in enumerate(unique_types)
+        # Get indices for rich dataset
+        type_indices_rich = get_subject_type_indices(test_data, type)
+        # Get indices for low dataset  
+        type_indices_low = get_subject_type_indices(test_data_low, type)
+
+        for (dataset_idx, dataset_name) in enumerate(dataset_order)
+            # Get MSE data for this type and dataset
+            if dataset_name == "Ohashi_Rich"
+                mse_values = mse_rich[type_indices_rich]
+            else  # Ohashi_Low
+                mse_values = mse_low[type_indices_low]
+            end
+
+            if !isempty(mse_values)
+                # Calculate x-position
+                x_center = type_idx
+                x_offset = (dataset_idx - 1.5) * 0.4  # -0.2, 0.2 for two datasets
+                x_pos = x_center + x_offset
+
+                # Plot violin
+                violin!(ax, fill(x_pos, length(mse_values)), mse_values,
+                    color=(dataset_colors[dataset_name], 0.6),
+                    width=violin_width,
+                    strokewidth=1, side=:right)
+
+                # Add jittered scatter points
+                scatter_offset = -0.1
+                jitter = scatter_offset .+ (rand(length(mse_values)) .- 0.5) .* jitter_width
+                scatter!(ax, fill(x_pos, length(mse_values)) .+ jitter, mse_values,
+                    color=(dataset_colors[dataset_name], 0.8),
+                    markersize=3)
+
+                # Add mean marker
+                mean_val = mean(mse_values)
+                scatter!(ax, [x_pos], [mean_val],
+                    color=:black,
+                    markersize=8,
+                    marker=:diamond)
+            end
+        end
+    end
+
+    # Set x-axis ticks and labels
+    ax.xticks = (1:length(unique_types), unique_types)
+
+    # Create legend
+    legend_elements = [
+        [PolyElement(color=(dataset_colors[dataset], 0.6)) for dataset in dataset_order]...,
+        MarkerElement(color=:black, marker=:diamond, markersize=8)
+    ]
+    legend_labels = ["Ohashi Rich", "Ohashi Low", "Mean"]
+    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset")
+
+    # Save the plot
+    save("figures/combined_mse_violin_datasets_$(model_type).png", fig)
+    println("Violin plot saved: figures/combined_mse_violin_datasets_$(model_type).png")
 
     # Compare between datasets using unpaired t-test (different sample sizes)
     perform_unpaired_ttest(mse_rich, mse_low, "Ohashi Rich", "Ohashi Low",
@@ -366,7 +521,4 @@ if nrow(significant_results) > 0
 else
     println("\n\nNo significant differences found in any comparison.")
 end
-
-
-
 
