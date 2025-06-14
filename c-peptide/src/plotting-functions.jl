@@ -32,10 +32,10 @@ FONTS = (
 
 function model_fit(types, timepoints, models, betas, nn_params, folder)
     fig = Figure(size=(1000, 400))
-    
+
     # Define the specific subjects to plot
     subjects_to_plot = [1, 13, 33]
-    
+
     # Add a supertitle above all subplots
     Label(fig[0, 1:3], "C-peptide Model Fit for Selected Subjects. Method $folder",
         fontsize=16, font=:bold, padding=(0, 0, 20, 0))
@@ -43,19 +43,19 @@ function model_fit(types, timepoints, models, betas, nn_params, folder)
     sol_timepoints = timepoints[1]:0.1:timepoints[end]
 
     # Create axes for the three subjects
-    axs = [Axis(fig[1, i], xlabel="Time [min]", ylabel="C-peptide [nmol/L]", 
-                title="Subject $(subjects_to_plot[i]) ($(types[subjects_to_plot[i]]))") 
+    axs = [Axis(fig[1, i], xlabel="Time [min]", ylabel="C-peptide [nmol/L]",
+        title="Subject $(subjects_to_plot[i]) ($(types[subjects_to_plot[i]]))")
            for i in 1:3]
 
     for (i, subject_idx) in enumerate(subjects_to_plot)
         # Calculate model solution
-        sol = Array(solve(models[subject_idx].problem, 
-                         p=ComponentArray(ode=[betas[subject_idx]], neural=nn_params), 
-                         saveat=sol_timepoints, save_idxs=1))
+        sol = Array(solve(models[subject_idx].problem,
+            p=ComponentArray(ode=[betas[subject_idx]], neural=nn_params),
+            saveat=sol_timepoints, save_idxs=1))
 
         # Plot model fit
         lines!(axs[i], sol_timepoints, sol[:, 1], color=Makie.wong_colors()[1], linewidth=1.5, label="Model fit")
-        
+
         # Plot observed data
         scatter!(axs[i], timepoints, test_data.cpeptide[subject_idx, :], color=Makie.wong_colors()[2], markersize=5, label="Data")
     end
@@ -66,9 +66,9 @@ end
 
 function correlation_figure(training_β, test_β, train_data, test_data, indices_train, folder, dataset)
     # training_β = training_β[indices_train]
-    
+
     fig = Figure(size=(1200, 800))
-    
+
 
     # Add a supertitle above all subplots
     Label(fig[0, 1:3], "Correlation Between β and Physiological Metrics",
@@ -425,9 +425,9 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
     for (i, type_val) in enumerate(subject_types)
         type_indices = findall(t -> t == type_val, train_data.types[indices_train])
         type_betas = sampled_betas[type_indices, :]
-        density!(ax1, vec(type_betas),color=(Makie.wong_colors()[i], 0.6),
-                strokecolor=Makie.wong_colors()[i],
-                strokewidth=2, label=type_val)
+        density!(ax1, vec(type_betas), color=(Makie.wong_colors()[i], 0.6),
+            strokecolor=Makie.wong_colors()[i],
+            strokewidth=2, label=type_val)
     end
 
     # Add vertical line for the mean
@@ -452,8 +452,8 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
         type_indices = findall(t -> t == type_val, test_data.types)
         type_betas = sampled_betas_test[type_indices, :]
         density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i], 0.6),
-                strokecolor=Makie.wong_colors()[i],
-                strokewidth=2, label=type_val)
+            strokecolor=Makie.wong_colors()[i],
+            strokewidth=2, label=type_val)
     end
 
     # Add vertical line for the mean
@@ -757,8 +757,8 @@ function zscore_correlation(test_data, objectives_current, current_types, folder
 end
 
 function plot_validation_error(best_losses, folder, dataset)
-    i = best_losses[:,"iteration"]
-    losses = best_losses[:,"loss"]
+    i = best_losses[:, "iteration"]
+    losses = best_losses[:, "loss"]
     fig = Figure(size=(800, 400))
     ax = Axis(fig[1, 1],
         xlabel="Iteration",
@@ -769,8 +769,8 @@ function plot_validation_error(best_losses, folder, dataset)
 
     # Add final loss value as annotation
     final_loss = losses[end]
-    text!(ax, "Final loss: $(round(final_loss, digits=4))", 
-        position=(length(losses)*0.7, minimum(losses) + 0.8*(maximum(losses)-minimum(losses))),
+    text!(ax, "Final loss: $(round(final_loss, digits=4))",
+        position=(length(losses) * 0.7, minimum(losses) + 0.8 * (maximum(losses) - minimum(losses))),
         fontsize=12)
 
     # Save the figure
@@ -792,13 +792,13 @@ function beta_posteriors(turing_model, advi_model, folder, dataset, samples=50_0
     for (i, beta_row) in enumerate(eachrow(sampled_betas))
         row_idx = div(i - 1, cols) + 1
         col_idx = mod1(i, cols)
-        
+
         ax = Axis(fig[row_idx, col_idx],
             xlabel="β",
             ylabel="Density",
             title="Subject $i",
             limits=(-10, 10, nothing, nothing))
-        
+
         # Plot the density of the sampled β
         density!(ax, beta_row, color=(Makie.wong_colors()[1], 0.5), label="Sampled β")
     end
@@ -1124,8 +1124,8 @@ function create_combined_mse_violin()
                     color=(method_colors[method], 0.8),
                     markersize=3)
 
-                # Add mean marker
-                median_val = mean(mse_values)
+                # Add median marker
+                median_val = median(mse_values)
                 scatter!(ax, [x_pos], [median_val],
                     color=:black,
                     markersize=8,
@@ -1142,7 +1142,7 @@ function create_combined_mse_violin()
         [PolyElement(color=(method_colors[method], 0.6)) for method in method_order]...,
         MarkerElement(color=:black, marker=:diamond, markersize=8)
     ]
-    legend_labels = ["MLE", "Partial Pooling", "No Pooling", "Mean"]
+    legend_labels = ["MLE", "Partial Pooling", "No Pooling", "Median"]
     Legend(fig[1, 2], legend_elements, legend_labels, "Method")
 
 
@@ -1228,3 +1228,4 @@ function combined_model_fit(test_data, subjects_to_plot)
 
     save("figures/combined_model_fit.png", fig, px_per_unit=4)
 end
+
