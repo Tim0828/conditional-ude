@@ -1,286 +1,351 @@
-using JLD2
-using CSV
-using DataFrames
-using CairoMakie
-using Statistics
-using HypothesisTests
-using Distributions
+using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra, HypothesisTests, Distributions
+using Bijectors: bijector
 
-# Load MSE
-mse_MLE = JLD2.load("data/MLE/mse.jld2")
-mse_partial_pooling = JLD2.load("data/partial_pooling/mse.jld2")
-mse_no_pooling = JLD2.load("data/no_pooling/mse.jld2")
+include("src/plotting-functions.jl")
+include("src/c_peptide_ude_models.jl")
+include("src/VI_models.jl")
 
-# extract the MSE values
-mse_MLE = mse_MLE["test"]
-mse_partial_pooling = mse_partial_pooling["objectives_current"]
-mse_no_pooling = mse_no_pooling["objectives_current"]
 
 # patient groups
 types = ["T2DM", "NGT", "IGT"]
 # model types 
 model_types = ["MLE", "partial_pooling", "no_pooling"]
-
+# datasets 
+datasets = ["ohashi_rich", "ohashi_low"]
+# load models
+models = load_models(types, model_types, datasets)
 # Load the data to obtain indices for the types
-train_data, test_data = jldopen("data/ohashi.jld2") do file
+train_data_low, test_data_low = jldopen("data/ohashi_low.jld2") do file
+    file["train"], file["test"]
+end
+train_data, test_data = jldopen("data/ohashi_rich.jld2") do file
     file["train"], file["test"]
 end
 
-function create_p_values_df(test_data, mse_MLE, mse_partial_pooling, mse_no_pooling, model_types)
-    # Create a DataFrame to store the results
-    results = DataFrame(
-        model=String[],
-        type=String[],
-        mean=Float64[],
-        std=Float64[],
-        lb=Float64[],
-        ub=Float64[]
-    )
-
-    # Create a DataFrame to store the p-values for heatmap visualization
-    p_values_df = DataFrame(
-        type=String[],
-        model1=String[],
-        model2=String[],
-        p_value=Float64[]
-    )
-
-
-    for (i, type) in enumerate(unique(test_data.types))
-        # get type indices for this type
-        type_indices = test_data.types .== type
-
-        # Get the MSE values for this type
-        type_mse_mle = mse_MLE[type_indices]
-        type_mse_pp = mse_partial_pooling[type_indices]
-        type_mse_np = mse_no_pooling[type_indices]
-
-        # get mean and std for each model
-        mse_metrics = Dict{String,Tuple{Float64,Float64,Float64}}()
-        alpha = 0.05
-        CIs = Dict{String,Tuple{Float64,Float64}}()
-
-        for model in model_types
-            mse_var = eval(Symbol("mse_" * model))
-            mu = mean(mse_var[type_indices])
-            sigma = std(mse_var[type_indices])
-            n = length(mse_var[type_indices])
-            mse_metrics[model] = (mu, sigma, n)
-
-            # Calculate the confidence intervals
-            lb = mu - quantile(Normal(0, 1), 1 - alpha / 2) * (sigma / sqrt(length(type_mse_mle)))
-            ub = mu + quantile(Normal(0, 1), 1 - alpha / 2) * (sigma / sqrt(length(type_mse_mle)))
-            CIs[model] = (lb, ub)
-
-            for model2 in model_types
-                if model == model2
-                    continue
-                end
-                x = mse_var[type_indices]
-                y = eval(Symbol("mse_" * model2))[type_indices]            # Perform the t-test
-                result = HypothesisTests.UnequalVarianceTTest(x, y)
-                println("t-test for $model vs $model2: ", result)
-                p_value = pvalue(result)
-
-                # Store the p-value in the DataFrame
-                push!(p_values_df, (type=type, model1=model, model2=model2, p_value=p_value))
-
-            end
-        end
-        # Store to results
-        for model in model_types
-            mu, sigma, n = mse_metrics[model]
-            lb, ub = CIs[model]
-            push!(results, (model=model, type=type, mean=mu, std=sigma, lb=lb, ub=ub))
-        end
-
-    end
-
-
-    # save the statistics to a CSV file
-    CSV.write("data/compare_mse_results.csv", results)
-
-    # save the p-values to a CSV file
-    CSV.write("data/p_values.csv", p_values_df)
-
-    return results, p_values_df
+# Helper function to get subject type indices
+function get_subject_type_indices(data, subject_type)
+    type_mask = data.types .== subject_type
+    return type_mask
 end
-# Create a heatmap for p-values
-# Transform the data into a matrix format suitable for heatmap
-function create_p_value_heatmap(p_values_df, type_filter=nothing)
-    # Filter by type if requested
-    if type_filter !== nothing
-        df = filter(row -> row.type == type_filter, p_values_df)
+
+# Function to round numeric columns in a DataFrame
+function round_numeric_columns!(df, digits=3)
+    for col in names(df)
+        if eltype(df[!, col]) <: AbstractFloat
+            df[!, col] = round.(df[!, col], digits=digits)
+        end
+    end
+    return df
+end
+
+# Function to convert dataset names for display/saving
+function convert_dataset_name(dataset)
+    if dataset == "ohashi_rich"
+        return "Ohashi (full)"
+    elseif dataset == "ohashi_low"
+        return "Ohashi (reduced)"
     else
-        df = p_values_df
+        return dataset
+    end
+end
+
+# Function to perform paired t-tests
+function perform_paired_ttest(mse1, mse2, label1, label2, description)
+    println("\n" * "="^60)
+    println("PAIRED T-TEST: $description")
+    println("Comparing: $label1 vs $label2")
+    println("="^60)
+
+    # Ensure same length
+    if length(mse1) != length(mse2)
+        println("Warning: Unequal sample sizes ($(length(mse1)) vs $(length(mse2)))")
+        min_len = min(length(mse1), length(mse2))
+        mse1 = mse1[1:min_len]
+        mse2 = mse2[1:min_len]
     end
 
-    # Get unique models in the correct order
-    models = model_types
+    # Remove any missing or infinite values
+    valid_indices = .!(ismissing.(mse1) .| ismissing.(mse2) .| isinf.(mse1) .| isinf.(mse2))
+    mse1_clean = mse1[valid_indices]
+    mse2_clean = mse2[valid_indices]
 
-    # Create a matrix to hold p-values
-    p_matrix = zeros(length(models), length(models))
+    if length(mse1_clean) < 2
+        println("Error: Not enough valid data points for t-test")
+        return nothing
+    end
 
-    # Fill the matrix with p-values
-    for (i, _) in enumerate(models)
-        for (j, _) in enumerate(models)
-            if i == j
-                # Diagonal (same model comparison) - set to 1.0
-                p_matrix[i, j] = 1.0
+    # Perform paired t-test
+    test_result = OneSampleTTest(mse1_clean - mse2_clean)
+
+    # Calculate descriptive statistics
+    mean1 = mean(mse1_clean)
+    mean2 = mean(mse2_clean)
+    std1 = std(mse1_clean)
+    std2 = std(mse2_clean)
+    mean_diff = mean(mse1_clean - mse2_clean)
+    std_diff = std(mse1_clean - mse2_clean)
+
+    # Display results
+    println("Sample size: $(length(mse1_clean))")
+    println("\nDescriptive Statistics:")
+    println("$label1: Mean = $(round(mean1, digits=4)), SD = $(round(std1, digits=4))")
+    println("$label2: Mean = $(round(mean2, digits=4)), SD = $(round(std2, digits=4))")
+    println("Difference ($label1 - $label2): Mean = $(round(mean_diff, digits=4)), SD = $(round(std_diff, digits=4))")
+
+    println("\nTest Results:")
+    println("t-statistic: $(round(test_result.t, digits=4))")
+    println("p-value: $(round(pvalue(test_result), digits=6))")
+    println("95% CI for mean difference: [$(round(confint(test_result)[1], digits=4)), $(round(confint(test_result)[2], digits=4))]")
+
+    # Interpretation
+    alpha = 0.05
+    if pvalue(test_result) < alpha
+        if mean_diff > 0
+            println("Interpretation: $label1 has significantly HIGHER MSE than $label2 (p < $alpha)")
+        else
+            println("Interpretation: $label1 has significantly LOWER MSE than $label2 (p < $alpha)")
+        end
+    else
+        println("Interpretation: No significant difference between $label1 and $label2 (p ≥ $alpha)")
+    end
+
+    return test_result
+end
+
+# Function to perform unpaired t-tests (for cross-dataset comparisons)
+function perform_unpaired_ttest(mse1, mse2, label1, label2, description)
+    println("\n" * "="^60)
+    println("UNPAIRED T-TEST: $description")
+    println("Comparing: $label1 vs $label2")
+    println("="^60)
+
+    # Remove any missing or infinite values
+    valid_indices1 = .!(ismissing.(mse1) .| isinf.(mse1))
+    valid_indices2 = .!(ismissing.(mse2) .| isinf.(mse2))
+    mse1_clean = mse1[valid_indices1]
+    mse2_clean = mse2[valid_indices2]
+
+    if length(mse1_clean) < 2 || length(mse2_clean) < 2
+        println("Error: Not enough valid data points for t-test")
+        return nothing
+    end
+
+    # Perform unpaired t-test
+    test_result = UnequalVarianceTTest(mse1_clean, mse2_clean)
+
+    # Calculate descriptive statistics
+    mean1 = mean(mse1_clean)
+    mean2 = mean(mse2_clean)
+    std1 = std(mse1_clean)
+    std2 = std(mse2_clean)
+    mean_diff = mean1 - mean2
+
+    # Display results
+    println("Sample sizes: $(length(mse1_clean)) vs $(length(mse2_clean))")
+    println("\nDescriptive Statistics:")
+    println("$label1: Mean = $(round(mean1, digits=4)), SD = $(round(std1, digits=4))")
+    println("$label2: Mean = $(round(mean2, digits=4)), SD = $(round(std2, digits=4))")
+    println("Difference ($label1 - $label2): Mean = $(round(mean_diff, digits=4))")
+
+    println("\nTest Results:")
+    println("t-statistic: $(round(test_result.t, digits=4))")
+    println("p-value: $(round(pvalue(test_result), digits=6))")
+    println("95% CI for mean difference: [$(round(confint(test_result)[1], digits=4)), $(round(confint(test_result)[2], digits=4))]")
+
+    # Interpretation
+    alpha = 0.05
+    if pvalue(test_result) < alpha
+        if mean_diff > 0
+            println("Interpretation: $label1 has significantly HIGHER MSE than $label2 (p < $alpha)")
+        else
+            println("Interpretation: $label1 has significantly LOWER MSE than $label2 (p < $alpha)")
+        end
+    else
+        println("Interpretation: No significant difference between $label1 and $label2 (p ≥ $alpha)")
+    end
+
+    return test_result
+end
+
+# Function to calculate correlations between betas and physiological metrics
+function calculate_beta_correlations(betas, test_data, model_type, dataset)
+    correlations_df = DataFrame(
+        Model_Type=String[],
+        Dataset=String[],
+        Metric=String[],
+        Correlation=Float64[],
+        P_Value=Float64[],
+        Significant=Bool[]
+    )
+
+    # Define metrics and their names
+    metrics = [
+        test_data.first_phase,
+        test_data.second_phase,
+        test_data.ages,
+        test_data.insulin_sensitivity,
+        test_data.body_weights,
+        test_data.bmis
+    ]
+
+    metric_names = [
+        "First Phase Clamp",
+        "Second Phase Clamp",
+        "Age",
+        "Insulin Sensitivity",
+        "Body Weight",
+        "BMI"
+    ]
+
+    # Calculate correlations for each metric
+    for (metric, name) in zip(metrics, metric_names)
+        # Filter out missing values
+        valid_indices = .!ismissing.(betas) .& .!ismissing.(metric)
+
+        if sum(valid_indices) > 2  # Need at least 3 points for correlation
+            correlation = corspearman(betas[valid_indices], metric[valid_indices])
+
+            # Calculate p-value using simple correlation test
+            n = sum(valid_indices)
+            if abs(correlation) < 0.9999  # Avoid division by zero
+                t_stat = correlation * sqrt((n - 2) / (1 - correlation^2))
+                p_value = 2 * (1 - cdf(TDist(n - 2), abs(t_stat)))
             else
-                # Find the p-value for this comparison
-                row = filter(r -> r.model1 == models[i] && r.model2 == models[j], df)
-                if !isempty(row)
-                    p_matrix[i, j] = first(row).p_value
-                end
+                p_value = 0.0  # Perfect correlation
             end
+
+            push!(correlations_df, (
+                Model_Type=model_type,
+                Dataset=convert_dataset_name(dataset),
+                Metric=name,
+                Correlation=correlation,
+                P_Value=p_value,
+                Significant=p_value < 0.05
+            ))
         end
     end
 
-    # Create the heatmap figure
-    fig = Figure(size=(600, 500))
-    ax = Axis(fig[1, 1],
-        title=type_filter === nothing ? "P-values (All Types)" : "P-values ($type_filter)",
-        xlabel="Model",
-        ylabel="Model",
-        xticks=(1:length(models), models),
-        yticks=(1:length(models), models))
-
-    # Create the heatmap
-    hm = CairoMakie.heatmap!(ax, p_matrix,
-        colormap=:viridis,
-        colorrange=(0, 0.05))
-
-    # Add p-value text annotations
-    for (i, _) in enumerate(axes(p_matrix, 1))
-        for (j, _) in enumerate(axes(p_matrix, 2))
-            # if i != j  # Skip diagonal elements
-                p_val = p_matrix[i, j]
-                text_color = p_val < 0.05 ? :white : :black
-                CairoMakie.text!(ax, "$(round(p_val, digits=3))",
-                    position=(j, i),
-                    align=(:center, :center),
-                    color=text_color,
-                    fontsize=14)
-            # end
-        end
-    end
-
-    # Add a colorbar
-    CairoMakie.Colorbar(fig[1, 2], hm, label="p-value")
-
-    # Return the figure
-    return fig
+    return correlations_df
 end
 
-results, p_values_df = create_p_values_df(test_data, mse_MLE, mse_partial_pooling, mse_no_pooling, model_types)
-# Create heatmaps for each type and one for all types combined
-for type in unique(p_values_df.type)
-    p = create_p_value_heatmap(p_values_df, type)
-    save("figures/p_values_heatmap_$type.png", p)
+# Function to perform t-tests comparing correlations between models
+function compare_model_correlations(correlations_df, model1, model2, dataset)
+    comparison_df = DataFrame(
+        Dataset=String[],
+        Metric=String[],
+        Model1=String[],
+        Model2=String[],
+        Correlation1=Float64[],
+        Correlation2=Float64[],
+        Correlation_Difference=Float64[],
+        Comparison_Result=String[]
+    )
+
+    # Get unique metrics
+    metrics = unique(correlations_df.Metric)
+
+    for metric in metrics
+        # Get correlations for each model
+        corr1_row = filter(row -> row.Model_Type == model1 && row.Dataset == dataset && row.Metric == metric, correlations_df)
+        corr2_row = filter(row -> row.Model_Type == model2 && row.Dataset == dataset && row.Metric == metric, correlations_df)
+
+        if !isempty(corr1_row) && !isempty(corr2_row)
+            corr1 = first(corr1_row).Correlation
+            corr2 = first(corr2_row).Correlation
+            diff = corr1 - corr2
+
+            # Simple interpretation based on correlation magnitude difference
+            if abs(diff) > 0.1
+                result = abs(corr1) > abs(corr2) ? "$model1 stronger" : "$model2 stronger"
+            else
+                result = "Similar"
+            end
+
+            push!(comparison_df, (
+                Dataset=convert_dataset_name(dataset),
+                Metric=metric,
+                Model1=model1,
+                Model2=model2,
+                Correlation1=corr1,
+                Correlation2=corr2,
+                Correlation_Difference=diff,
+                Comparison_Result=result
+            ))
+        end
+    end
+
+    return comparison_df
 end
 
-# Create a combined heatmap
-p_all = create_p_value_heatmap(p_values_df)
-save("figures/p_values_heatmap_all.png", p_all)
+# Adapted functions for compare_models.jl
 
-# Create a violin plot comparing all three methods grouped by subject type
-function create_combined_mse_violin()
-    fig = Figure(size=(1000, 600))
-    
-    # Define colors for each method
-    method_colors = Dict(
-        "MLE" => Makie.wong_colors()[1],
-        "partial_pooling" => Makie.wong_colors()[2], 
-        "no_pooling" => Makie.wong_colors()[3]
-    )
-    
-    # Collect all MSE data into a structured format
-    mse_data = DataFrame(
-        mse=Float64[],
-        method=String[],
-        type=String[]
-    )
-    
-    # Add MLE data
-    for (i, type) in enumerate(unique(test_data.types))
-        type_indices = test_data.types .== type
-        type_mse = mse_MLE[type_indices]
-        for mse_val in type_mse
-            push!(mse_data, (mse=mse_val, method="MLE", type=type))
-        end
-    end
-    
-    # Add partial pooling data
-    for (i, type) in enumerate(unique(test_data.types))
-        type_indices = test_data.types .== type
-        type_mse = mse_partial_pooling[type_indices]
-        for mse_val in type_mse
-            push!(mse_data, (mse=mse_val, method="partial_pooling", type=type))
-        end
-    end
-    
-    # Add no pooling data
-    for (i, type) in enumerate(unique(test_data.types))
-        type_indices = test_data.types .== type
-        type_mse = mse_no_pooling[type_indices]
-        for mse_val in type_mse
-            push!(mse_data, (mse=mse_val, method="no_pooling", type=type))
-        end
-    end
-    
-    # Create the plot
+# Function to create violin plot comparing methods within a dataset
+function create_methods_comparison_violin(mse_mle, mse_partial, mse_no_pool, test_data, title_suffix="")
+    fig = Figure(size=(800, 600))
     ax = Axis(fig[1, 1],
         xlabel="Patient Type",
         ylabel="Mean Squared Error",
-        title="MSE Comparison Across Methods by Patient Type")
-    
+        title="MSE Comparison Across Methods$title_suffix")
+
+    ylims!(ax, 0, nothing)  # Set y-axis limits
+    # Define colors for each method
+    method_colors = Dict(
+        "MLE" => Makie.wong_colors()[1],
+        "Partial_Pooling" => Makie.wong_colors()[2],
+        "No_Pooling" => Makie.wong_colors()[3]
+    )
+
     unique_types = ["NGT", "IGT", "T2DM"]
-    method_order = ["MLE", "partial_pooling", "no_pooling"]
-    
+    method_order = ["MLE", "Partial_Pooling", "No_Pooling"]
     jitter_width = 0.08
     violin_width = 0.25
-    
+
     # Plot for each type and method combination
     for (type_idx, type) in enumerate(unique_types)
+        type_indices = get_subject_type_indices(test_data, type)
+
         for (method_idx, method) in enumerate(method_order)
-            # Get data for this type and method
-            subset_data = filter(row -> row.type == type && row.method == method, mse_data)
-            
-            if !isempty(subset_data)
-                mse_values = subset_data.mse
-                
-                # Calculate x-position: center each type, then offset for methods
+            # Get MSE data for this type and method
+            if method == "MLE"
+                mse_values = mse_mle[type_indices]
+            elseif method == "Partial_Pooling"
+                mse_values = mse_partial[type_indices]
+            else  # No_Pooling
+                mse_values = mse_no_pool[type_indices]
+            end
+
+            if !isempty(mse_values)
+                # Calculate x-position
                 x_center = type_idx
-                x_offset = (method_idx - 2) * 0.3  # -0.3, 0, 0.3 for three methods
+                x_offset = (method_idx - 2) * 0.3
                 x_pos = x_center + x_offset
-                
+
                 # Plot violin
                 violin!(ax, fill(x_pos, length(mse_values)), mse_values,
                     color=(method_colors[method], 0.6),
                     width=violin_width,
                     strokewidth=1, side=:right)
-                
+
                 # Add jittered scatter points
                 scatter_offset = -0.07
                 jitter = scatter_offset .+ (rand(length(mse_values)) .- 0.5) .* jitter_width
                 scatter!(ax, fill(x_pos, length(mse_values)) .+ jitter, mse_values,
                     color=(method_colors[method], 0.8),
                     markersize=3)
-                
+
                 # Add mean marker
-                median_val = mean(mse_values)
-                scatter!(ax, [x_pos], [median_val],
+                mean_val = mean(mse_values)
+                scatter!(ax, [x_pos], [mean_val],
                     color=:black,
                     markersize=8,
                     marker=:diamond)
             end
         end
     end
-    
+
     # Set x-axis ticks and labels
     ax.xticks = (1:length(unique_types), unique_types)
-    
+
     # Create legend
     legend_elements = [
         [PolyElement(color=(method_colors[method], 0.6)) for method in method_order]...,
@@ -288,100 +353,634 @@ function create_combined_mse_violin()
     ]
     legend_labels = ["MLE", "Partial Pooling", "No Pooling", "Mean"]
     Legend(fig[1, 2], legend_elements, legend_labels, "Method")
-    
 
     return fig
 end
 
-# Create and save the combined violin plot
-combined_violin_fig = create_combined_mse_violin()
-save("figures/combined_mse_violin.png", combined_violin_fig)
+# Function to create violin plot comparing datasets for a single model
+function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, test_data_low, model_type)
+    fig = Figure(size=(800, 600))
+    ax = Axis(fig[1, 1],
+        xlabel="Patient Type",
+        ylabel="Mean Squared Error",
+        title="MSE Comparison Between Datasets - $model_type Model")
 
-using Turing
-# includes
-include("src/c_peptide_ude_models.jl")
-include("src/plotting-functions.jl")
-include("src/VI_models.jl")
+    ylims!(ax, 0, nothing)  # Set y-axis limits
+    # Define colors for each dataset
+    dataset_colors = Dict(
+        "Ohashi_Rich" => Makie.wong_colors()[1],
+        "Ohashi_Low" => Makie.wong_colors()[2]
+    )
 
+    unique_types = ["NGT", "IGT", "T2DM"]
+    dataset_order = ["Ohashi_Rich", "Ohashi_Low"]
+    jitter_width = 0.08
+    violin_width = 0.35
 
+    # Plot for each type and dataset combination
+    for (type_idx, type) in enumerate(unique_types)
+        # Get indices for rich dataset
+        type_indices_rich = get_subject_type_indices(test_data_rich, type)
+        # Get indices for low dataset  
+        type_indices_low = get_subject_type_indices(test_data_low, type)
 
-function combined_model_fit(test_data,subjects_to_plot)
-    fig = Figure(size=(1000, 400))
-    # Create axes for the three subjects
-    axs = [Axis(fig[1, i], xlabel="Time [min]", ylabel="C-peptide [nmol/L]",
-        title="Subject $(subjects_to_plot[i]) ($(test_data.types[subjects_to_plot[i]]))")
-           for i in 1:3]
-    # Add a supertitle above all subplots
-    Label(fig[0, 1:3], "C-peptide Model Fit for Selected Subjects",
-        fontsize=16, font=:bold, padding=(0, 0, 20, 0))
-   
-    #define timepoints
-    sol_timepoints = test_data.timepoints
-    chain = neural_network_model(2, 6)
-
-
-    for (i, subject_idx) in enumerate(subjects_to_plot)
-        # Plot observed data
-        scatter!(axs[i], sol_timepoints, test_data.cpeptide[subject_idx, :], color=Makie.wong_colors()[4], markersize=5, label="Data")
-    end
-
-    # Load the models
-    folders = ["MLE", "no_pooling", "partial_pooling"]
-    for (j, folder) in enumerate(folders)
-        if folder == "MLE"
-            # Load MLE model
-            nn_params, betas, best_model_index = try
-                jldopen("data/MLE/cude_neural_parameters.jld2") do file
-                    file["parameters"], file["betas"], file["best_model_index"]
-                end
-            catch
-                error("Trained weights not found! Please train the model first by setting train_model to true")
+        for (dataset_idx, dataset_name) in enumerate(dataset_order)
+            # Get MSE data for this type and dataset
+            if dataset_name == "Ohashi_Rich"
+                mse_values = mse_rich[type_indices_rich]
+            else  # Ohashi_Low
+                mse_values = mse_low[type_indices_low]
             end
-            # obtain the betas for the train data
-            lb = minimum(betas[best_model_index]) - 0.1 * abs(minimum(betas[best_model_index]))
-            ub = maximum(betas[best_model_index]) + 0.1 * abs(maximum(betas[best_model_index]))
 
-            # obtain the betas for the test data
-            t2dm = test_data.types .== "T2DM"
-            models_test = [
-                CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
-            ]
+            if !isempty(mse_values)
+                # Calculate x-position
+                x_center = type_idx
+                x_offset = (dataset_idx - 1.5) * 0.4  # -0.2, 0.2 for two datasets
+                x_pos = x_center + x_offset
 
-            optsols = train(models_test, test_data.timepoints, test_data.cpeptide, nn_params, lbfgs_lower_bound=lb, lbfgs_upper_bound=ub)
-            betas_test = [optsol.u[1] for optsol in optsols]
-            for (i, subject_idx) in enumerate(subjects_to_plot)
-                # Calculate model solution
-                sol = Array(solve(models_test[subject_idx].problem,
-                    p=ComponentArray(ode=[betas_test[subject_idx]], neural=nn_params),
-                    saveat=sol_timepoints, save_idxs=1))
+                # Plot violin
+                violin!(ax, fill(x_pos, length(mse_values)), mse_values,
+                    color=(dataset_colors[dataset_name], 0.6),
+                    width=violin_width,
+                    strokewidth=1, side=:right)
 
-                # Plot model fit
-                lines!(axs[i], sol_timepoints, sol, color=Makie.wong_colors()[j], linewidth=1.5, label=folder, alpha=0.7)
-            end
-        else
-            # Load ADVI models
-            _, _, nn_params, _, betas_test = load_model(folder)
-            t2dm = test_data.types .== "T2DM"
-            models_test = [
-                CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
-            ]
-            for (i, subject_idx) in enumerate(subjects_to_plot)
-                # Calculate model solution
-                sol = Array(solve(models_test[subject_idx].problem,
-                    p=ComponentArray(ode=[betas_test[subject_idx]], neural=nn_params),
-                    saveat=sol_timepoints, save_idxs=1))
+                # Add jittered scatter points
+                scatter_offset = -0.1
+                jitter = scatter_offset .+ (rand(length(mse_values)) .- 0.5) .* jitter_width
+                scatter!(ax, fill(x_pos, length(mse_values)) .+ jitter, mse_values,
+                    color=(dataset_colors[dataset_name], 0.8),
+                    markersize=3)
 
-                # Plot model fit
-                lines!(axs[i], sol_timepoints, sol, color=Makie.wong_colors()[j], linewidth=1.5, label=folder, alpha=0.7)
+                # Add mean marker
+                mean_val = mean(mse_values)
+                scatter!(ax, [x_pos], [mean_val],
+                    color=:black,
+                    markersize=8,
+                    marker=:diamond)
             end
         end
     end
-    # Add a single legend for all subplots
-    Legend(fig[1, 4], axs[1], "Legend", framevisible=false)
 
-    
-    save("figures/combined_model_fit.png", fig, px_per_unit=4)
+    # Set x-axis ticks and labels
+    ax.xticks = (1:length(unique_types), unique_types)
+
+    # Create legend
+    legend_elements = [
+        [PolyElement(color=(dataset_colors[dataset], 0.6)) for dataset in dataset_order]...,
+        MarkerElement(color=:black, marker=:diamond, markersize=8)
+    ]
+    legend_labels = ["Ohashi Rich", "Ohashi Low", "Mean"]
+    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset")
+
+    return fig
 end
- # Define the specific subjects to plot
-subjects_to_plot = [1, 13, 33]
-combined_model_fit(test_data, subjects_to_plot)
+
+
+# 1. Compare model types within the same dataset - GENERAL
+println("\n" * "#"^80)
+println("1. COMPARING MODEL TYPES WITHIN SAME DATASET (GENERAL)")
+println("#"^80)
+
+for dataset in datasets
+    println("\n" * "-"^50)
+    println("DATASET: $dataset")
+    println("-"^50)
+    # Get MSE values for each model type
+    mse_mle = models["$(dataset)_MLE"]["mse"]
+    mse_partial = models["$(dataset)_partial_pooling"]["mse"]
+    mse_no_pool = models["$(dataset)_no_pooling"]["mse"]    # Create combined violin plot for methods comparison within dataset
+    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+    fig = create_methods_comparison_violin(mse_mle, mse_partial, mse_no_pool, current_test_data, " - $dataset Dataset")
+
+    # Save the plot
+    save("figures/combined_mse_violin_methods_$(dataset).png", fig)
+    println("Violin plot saved: figures/combined_mse_violin_methods_$(dataset).png")
+
+    # Pairwise comparisons
+    perform_paired_ttest(mse_mle, mse_partial, "MLE", "Partial Pooling",
+        "Model comparison within $dataset dataset")
+
+    perform_paired_ttest(mse_mle, mse_no_pool, "MLE", "No Pooling",
+        "Model comparison within $dataset dataset")
+
+    perform_paired_ttest(mse_partial, mse_no_pool, "Partial Pooling", "No Pooling",
+        "Model comparison within $dataset dataset")
+end
+
+# 2. Compare model types within the same dataset - BY SUBJECT TYPE
+println("\n" * "#"^80)
+println("2. COMPARING MODEL TYPES BY SUBJECT TYPE")
+println("#"^80)
+
+for dataset in datasets
+    # Get the appropriate test data
+    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+
+    for subject_type in types
+        println("\n" * "-"^50)
+        println("DATASET: $dataset, SUBJECT TYPE: $subject_type")
+        println("-"^50)
+
+        # Get indices for this subject type
+        type_indices = get_subject_type_indices(current_test_data, subject_type)
+
+        if length(type_indices) < 2
+            println("Warning: Not enough subjects of type $subject_type in $dataset dataset")
+            continue
+        end
+        # Get MSE values for each model type, filtered by subject type
+        mse_mle = models["$(dataset)_MLE"]["mse"][type_indices]
+        mse_partial = models["$(dataset)_partial_pooling"]["mse"][type_indices]
+        mse_no_pool = models["$(dataset)_no_pooling"]["mse"][type_indices]
+
+        # Pairwise comparisons
+        perform_paired_ttest(mse_mle, mse_partial, "MLE", "Partial Pooling",
+            "Model comparison for $subject_type subjects in $dataset dataset")
+
+        perform_paired_ttest(mse_mle, mse_no_pool, "MLE", "No Pooling",
+            "Model comparison for $subject_type subjects in $dataset dataset")
+
+        perform_paired_ttest(mse_partial, mse_no_pool, "Partial Pooling", "No Pooling",
+            "Model comparison for $subject_type subjects in $dataset dataset")
+    end
+end
+
+# 3. Compare model types between datasets - GENERAL
+println("\n" * "#"^80)
+println("3. COMPARING MODEL TYPES BETWEEN DATASETS")
+println("#"^80)
+
+for model_type in model_types
+    println("\n" * "-"^50)
+    println("MODEL TYPE: $model_type")
+    println("-"^50)
+    # Get MSE values for each dataset
+    mse_rich = models["ohashi_rich_$model_type"]["mse"]
+    mse_low = models["ohashi_low_$model_type"]["mse"]    # Create combined violin plot for dataset comparison
+    fig = create_datasets_comparison_violin(mse_rich, mse_low, test_data, test_data_low, model_type)
+
+    # Save the plot
+    save("figures/combined_mse_violin_datasets_$(model_type).png", fig)
+    println("Violin plot saved: figures/combined_mse_violin_datasets_$(model_type).png")
+
+    # Compare between datasets using unpaired t-test (different sample sizes)
+    perform_unpaired_ttest(mse_rich, mse_low, "Ohashi Rich", "Ohashi Low",
+        "Dataset comparison for $model_type model")
+end
+
+# 4. Summary table creation
+println("\n" * "#"^80)
+println("4. CREATING SUMMARY TABLE")
+println("#"^80)
+
+# Create summary DataFrame
+summary_results = DataFrame(
+    Dataset=String[],
+    Subject_Type=String[],
+    Model1=String[],
+    Model2=String[],
+    Mean_MSE1=Float64[],
+    Mean_MSE2=Float64[],
+    Mean_Difference=Float64[],
+    T_Statistic=Float64[],
+    P_Value=Float64[],
+    Significant=Bool[]
+)
+
+# Function to add results to summary table
+function add_to_summary!(summary_df, dataset, subject_type, model1, model2, mse1, mse2)
+    # Clean data
+    valid_indices = .!(ismissing.(mse1) .| ismissing.(mse2) .| isinf.(mse1) .| isinf.(mse2))
+    mse1_clean = mse1[valid_indices]
+    mse2_clean = mse2[valid_indices]
+
+    if length(mse1_clean) < 2
+        return
+    end    # Perform test
+    test_result = OneSampleTTest(mse1_clean - mse2_clean)
+
+    push!(summary_df, (
+        Dataset=convert_dataset_name(dataset),
+        Subject_Type=subject_type,
+        Model1=model1,
+        Model2=model2,
+        Mean_MSE1=mean(mse1_clean),
+        Mean_MSE2=mean(mse2_clean),
+        Mean_Difference=mean(mse1_clean - mse2_clean),
+        T_Statistic=test_result.t,
+        P_Value=pvalue(test_result),
+        Significant=pvalue(test_result) < 0.05
+    ))
+end
+
+# Function to add unpaired t-test results to summary table
+function add_unpaired_to_summary!(summary_df, dataset, subject_type, model1, model2, mse1, mse2)
+    # Clean data separately for each group
+    valid_indices1 = .!(ismissing.(mse1) .| isinf.(mse1))
+    valid_indices2 = .!(ismissing.(mse2) .| isinf.(mse2))
+    mse1_clean = mse1[valid_indices1]
+    mse2_clean = mse2[valid_indices2]
+
+    if length(mse1_clean) < 2 || length(mse2_clean) < 2
+        return
+    end    # Perform unpaired t-test
+    test_result = UnequalVarianceTTest(mse1_clean, mse2_clean)
+
+    push!(summary_df, (
+        Dataset=convert_dataset_name(dataset),
+        Subject_Type=subject_type,
+        Model1=model1,
+        Model2=model2,
+        Mean_MSE1=mean(mse1_clean),
+        Mean_MSE2=mean(mse2_clean),
+        Mean_Difference=mean(mse1_clean) - mean(mse2_clean),
+        T_Statistic=test_result.t,
+        P_Value=pvalue(test_result),
+        Significant=pvalue(test_result) < 0.05
+    ))
+end
+
+# Fill summary table with all comparisons
+for dataset in datasets
+    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+    # General comparisons (all subjects)
+    mse_mle = models["$(dataset)_MLE"]["mse"]
+    mse_partial = models["$(dataset)_partial_pooling"]["mse"]
+    mse_no_pool = models["$(dataset)_no_pooling"]["mse"]
+
+    add_to_summary!(summary_results, dataset, "All", "MLE", "Partial_Pooling", mse_mle, mse_partial)
+    add_to_summary!(summary_results, dataset, "All", "MLE", "No_Pooling", mse_mle, mse_no_pool)
+    add_to_summary!(summary_results, dataset, "All", "Partial_Pooling", "No_Pooling", mse_partial, mse_no_pool)
+
+    # By subject type
+    for subject_type in types
+        type_indices = get_subject_type_indices(current_test_data, subject_type)
+
+        if length(type_indices) < 2
+            continue
+        end
+
+        mse_mle_type = mse_mle[type_indices]
+        mse_partial_type = mse_partial[type_indices]
+        mse_no_pool_type = mse_no_pool[type_indices]
+
+        add_to_summary!(summary_results, dataset, subject_type, "MLE", "Partial_Pooling", mse_mle_type, mse_partial_type)
+        add_to_summary!(summary_results, dataset, subject_type, "MLE", "No_Pooling", mse_mle_type, mse_no_pool_type)
+        add_to_summary!(summary_results, dataset, subject_type, "Partial_Pooling", "No_Pooling", mse_partial_type, mse_no_pool_type)
+    end
+end
+
+# Between dataset comparisons
+for model_type in model_types
+    mse_rich = models["ohashi_rich_$model_type"]["mse"]
+    mse_low = models["ohashi_low_$model_type"]["mse"]
+
+    add_unpaired_to_summary!(summary_results, "Cross_Dataset", "All", "$model_type (full)", "$model_type (reduced)", mse_rich, mse_low)
+end
+
+# Display summary table
+println("\nSUMMARY OF ALL T-TEST RESULTS:")
+println("="^100)
+show(summary_results, allrows=true, allcols=true)
+
+# Round numeric columns before saving
+summary_results_rounded = copy(summary_results)
+round_numeric_columns!(summary_results_rounded, 3)
+
+# Save summary table
+CSV.write("data/ttest_summary_results.csv", summary_results_rounded)
+println("\n\nSummary results saved to: data/ttest_summary_results.csv")
+
+# Display significant results only
+significant_results = filter(row -> row.Significant, summary_results_rounded)
+if nrow(significant_results) > 0
+    println("\n\nSIGNIFICANT RESULTS ONLY:")
+    println("="^100)
+    # Drop the 'Significant' column before displaying
+    significant_results_display = select(significant_results, Not(:Significant))
+    show(significant_results_display, allrows=true, allcols=true)
+
+    # Save significant results to CSV without the 'Significant' column
+    CSV.write("data/significant_ttest_results.csv", significant_results_display)
+    println("\nSignificant results saved to: data/significant_ttest_results.csv")
+else
+    println("\n\nNo significant differences found in any comparison.")
+end
+
+# 5. Beta Correlation Analysis
+println("\n" * "#"^80)
+println("5. BETA CORRELATION ANALYSIS")
+println("#"^80)
+
+# Calculate correlations for all models and datasets
+all_correlations = DataFrame()
+
+for dataset in datasets
+    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+
+    for model_type in model_types
+        # Get betas for this model and dataset
+        if haskey(models["$(dataset)_$(model_type)"], "beta_test")
+            betas = models["$(dataset)_$(model_type)"]["beta_test"]
+        else
+            println("Warning: No beta_test found for $(dataset)_$(model_type)")
+            continue
+        end
+
+        # Calculate correlations
+        model_correlations = calculate_beta_correlations(betas, current_test_data, model_type, dataset)
+        append!(all_correlations, model_correlations)
+    end
+end
+
+# Display correlation results
+println("\nBETA-PHYSIOLOGICAL METRIC CORRELATIONS:")
+println("="^100)
+show(all_correlations, allrows=true, allcols=true)
+
+# Round numeric columns before saving
+all_correlations_rounded = copy(all_correlations)
+round_numeric_columns!(all_correlations_rounded, 3)
+
+# Save correlation results
+CSV.write("data/beta_correlations_results.csv", all_correlations_rounded)
+println("\nCorrelation results saved to: data/beta_correlations_results.csv")
+
+# Display significant correlations only
+significant_correlations = filter(row -> row.Significant, all_correlations)
+if nrow(significant_correlations) > 0
+    println("\n\nSIGNIFICANT CORRELATIONS ONLY:")
+    println("="^100)
+    show(significant_correlations, allrows=true, allcols=true)
+else
+    println("\n\nNo significant correlations found.")
+end
+
+# Create bar chart for significant correlations by method and dataset
+println("\n" * "="^80)
+println("SIGNIFICANT CORRELATIONS BAR CHART")
+println("="^80)
+
+# Function to create bar chart of significant correlations
+function create_significant_correlations_barchart(correlations_df)
+    # Count significant correlations by model type and dataset
+    sig_counts = combine(
+        groupby(filter(row -> row.Significant, correlations_df), [:Model_Type, :Dataset]),
+        nrow => :Count
+    )
+
+    # Create complete combination of all model types and datasets (fill missing with 0)
+    complete_combinations = DataFrame()
+    converted_dataset_names = [convert_dataset_name(dataset) for dataset in datasets]
+
+    for model_type in model_types
+        for dataset_name in converted_dataset_names
+            push!(complete_combinations, (Model_Type=model_type, Dataset=dataset_name))
+        end
+    end
+
+    # Merge with actual counts and fill missing with 0
+    sig_counts_complete = leftjoin(complete_combinations, sig_counts, on=[:Model_Type, :Dataset])
+    sig_counts_complete.Count = coalesce.(sig_counts_complete.Count, 0)
+
+    # Create the bar chart
+    fig = Figure(size=(900, 600))
+    ax = Axis(fig[1, 1],
+        xlabel="Model Type",
+        ylabel="Number of Significant Correlations",
+        title="Significant Beta-Physiological Correlations by Model and Dataset")
+
+    # Define colors for datasets (using converted names)
+    dataset_colors = Dict(
+        "Ohashi (full)" => Makie.wong_colors()[1],
+        "Ohashi (reduced)" => Makie.wong_colors()[2]
+    )    # Define x positions for each model type
+    model_positions = Dict(
+        "MLE" => 1,
+        "partial_pooling" => 2,
+        "no_pooling" => 3
+    )
+
+    bar_width = 0.35
+    offset = bar_width / 2
+
+    # Get unique datasets from the data (converted names)
+    unique_datasets = unique(sig_counts_complete.Dataset)
+
+    # Plot bars for each dataset
+    for (dataset_idx, dataset_name) in enumerate(unique_datasets)
+        dataset_data = filter(row -> row.Dataset == dataset_name, sig_counts_complete)
+
+        x_positions = [model_positions[model] + (dataset_idx - 1.5) * offset for model in dataset_data.Model_Type]
+        y_values = dataset_data.Count
+
+        barplot!(ax, x_positions, y_values,
+            width=bar_width,
+            color=dataset_colors[dataset_name],
+            label=dataset_name)
+    end
+
+    # Customize x-axis
+    ax.xticks = (1:length(model_types), replace.(model_types, "_" => " ") .|> titlecase)
+
+    # Add legend
+    Legend(fig[1, 2], ax, "Dataset")    # Add value labels on bars
+    for (dataset_idx, dataset_name) in enumerate(unique_datasets)
+        dataset_data = filter(row -> row.Dataset == dataset_name, sig_counts_complete)
+        x_positions = [model_positions[model] + (dataset_idx - 1.5) * offset for model in dataset_data.Model_Type]
+        y_values = dataset_data.Count
+
+        for (x, y) in zip(x_positions, y_values)
+            if y > 0  # Only show labels for non-zero values
+                text!(ax, x, y + 0.1, text=string(y), align=(:center, :bottom), fontsize=12)
+            end
+        end
+    end
+
+    # Set y-axis to start from 0 and add some padding
+    ylims!(ax, 0, nothing)
+
+    return fig, sig_counts_complete
+end
+
+# Create and save the bar chart
+fig, sig_counts_table = create_significant_correlations_barchart(all_correlations)
+save("figures/significant_correlations_barchart.png", fig)
+println("Significant correlations bar chart saved: figures/significant_correlations_barchart.png")
+
+# Display the counts table
+println("\nSignificant Correlations Count by Model and Dataset:")
+println("="^60)
+show(sig_counts_table, allrows=true, allcols=true)
+
+# Save the counts table
+CSV.write("data/significant_correlations_counts.csv", sig_counts_table)
+println("\nSignificant correlations counts saved to: data/significant_correlations_counts.csv")
+
+# 6. Correlation Comparison Between Models
+println("\n" * "#"^80)
+println("6. CORRELATION COMPARISON BETWEEN MODELS")
+println("#"^80)
+
+# Compare correlations between model types for each dataset
+all_correlation_comparisons = DataFrame()
+
+for dataset in datasets
+    println("\n" * "-"^50)
+    println("DATASET: $dataset")
+    println("-"^50)
+
+    # Compare all pairs of models
+    model_pairs = [
+        ("MLE", "partial_pooling"),
+        ("MLE", "no_pooling"),
+        ("partial_pooling", "no_pooling")
+    ]
+
+    for (model1, model2) in model_pairs
+        comparison = compare_model_correlations(all_correlations, model1, model2, dataset)
+        append!(all_correlation_comparisons, comparison)
+
+        if nrow(comparison) > 0
+            println("\nComparing $model1 vs $model2:")
+            show(comparison, allrows=true, allcols=true)
+        end
+    end
+end
+
+# Round numeric columns before saving
+all_correlation_comparisons_rounded = copy(all_correlation_comparisons)
+round_numeric_columns!(all_correlation_comparisons_rounded, 3)
+
+# Save correlation comparison results
+CSV.write("data/beta_correlation_comparisons.csv", all_correlation_comparisons_rounded)
+println("\nCorrelation comparison results saved to: data/beta_correlation_comparisons.csv")
+
+# Summary of correlation patterns
+println("\n" * "="^80)
+println("CORRELATION ANALYSIS SUMMARY")
+println("="^80)
+
+# Group by metric and show average correlations across models
+correlation_summary = combine(groupby(all_correlations, [:Metric, :Model_Type]),
+    :Correlation => mean => :Avg_Correlation,
+    :Significant => sum => :Num_Significant)
+
+println("\nAverage correlations by metric and model:")
+show(correlation_summary, allrows=true, allcols=true)
+
+# Find strongest correlations
+strongest_correlations = sort(all_correlations, :Correlation, rev=true)[1:min(10, nrow(all_correlations)), :]
+println("\nStrongest correlations (top 10):")
+show(strongest_correlations[:, [:Model_Type, :Dataset, :Metric, :Correlation, :Significant]], allrows=true, allcols=true)
+
+
+# 7. DIC Comparison Between Pooling Methods
+println("\n" * "="^80)
+println("SECTION 7: DIC COMPARISON BETWEEN POOLING METHODS")
+println("="^80)
+
+# Function to load DIC values
+function load_dic_values()
+    dic_values = Dict()
+
+    # Define the pooling types to compare
+    pooling_types = ["partial_pooling", "no_pooling"]
+
+    for pooling_type in pooling_types
+        dic_values[pooling_type] = Dict()
+
+        for dataset in datasets
+            dic_file_path = "data/$pooling_type/dic_$dataset.jld2"
+
+            if isfile(dic_file_path)
+                try
+                    dic_value = jldopen(dic_file_path) do file
+                        file["dic"]
+                    end
+                    dic_values[pooling_type][dataset] = dic_value
+                    println("Loaded DIC for $pooling_type - $dataset: $(round(dic_value, digits=3))")
+                catch e
+                    println("Warning: Could not load DIC from $dic_file_path: $e")
+                    dic_values[pooling_type][dataset] = missing
+                end
+            else
+                println("Warning: DIC file not found: $dic_file_path")
+                dic_values[pooling_type][dataset] = missing
+            end
+        end
+    end
+
+    return dic_values
+end
+
+# Load DIC values
+dic_values = load_dic_values()
+
+# Create DIC comparison DataFrame
+dic_comparison = DataFrame(
+    Dataset=String[],
+    Partial_Pooling_DIC=Float64[],
+    No_Pooling_DIC=Float64[],
+    DIC_Difference=Float64[],
+    Better_Model=String[]
+)
+
+println("\n" * "="^60)
+println("DIC COMPARISON RESULTS")
+println("="^60)
+
+for dataset in datasets
+    partial_dic = dic_values["partial_pooling"][dataset]
+    no_pooling_dic = dic_values["no_pooling"][dataset]
+
+    # Convert dataset name for display
+    dataset_display = dataset == "ohashi_rich" ? "Ohashi (Full)" : "Ohashi (Reduced)"
+
+    if !ismissing(partial_dic) && !ismissing(no_pooling_dic)
+        dic_diff = partial_dic - no_pooling_dic
+        better_model = dic_diff < 0 ? "Partial Pooling" : "No Pooling"
+
+        push!(dic_comparison, (
+            Dataset=dataset_display,
+            Partial_Pooling_DIC=partial_dic,
+            No_Pooling_DIC=no_pooling_dic,
+            DIC_Difference=dic_diff,
+            Better_Model=better_model
+        ))
+
+        println("\nDataset: $dataset_display")
+        println("  Partial Pooling DIC: $(round(partial_dic, digits=3))")
+        println("  No Pooling DIC: $(round(no_pooling_dic, digits=3))")
+        println("  Difference (Partial - No): $(round(dic_diff, digits=3))")
+        println("  Better model: $better_model")
+
+        if dic_diff < 0
+            println("  → Partial pooling provides better model fit")
+        else
+            println("  → No pooling provides better model fit")
+        end
+    else
+        println("\nDataset: $dataset_display - Missing DIC values")
+    end
+end
+
+# Display comprehensive DIC comparison table
+println("\n" * "="^80)
+println("COMPREHENSIVE DIC COMPARISON TABLE")
+println("="^80)
+show(dic_comparison, allrows=true, allcols=true)
+
+# Round numeric columns before saving
+dic_comparison_rounded = copy(dic_comparison)
+round_numeric_columns!(dic_comparison_rounded, 3)
+
+# Save DIC comparison results
+CSV.write("data/dic_comparison.csv", dic_comparison_rounded)
+println("\n\nDIC comparison saved to: data/dic_comparison.csv")
+
+
+println("\n" * "="^80)
+println("MODEL COMPARISON ANALYSIS COMPLETE")
+println("="^80)
+

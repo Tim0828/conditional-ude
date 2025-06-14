@@ -1,0 +1,7 @@
+Dataset,Model_Type,Mean_MSE,Std_MSE,Best_Correlation_Metric,Best_Correlation_Value,Num_Significant_Correlations,Overall_Performance_Rank
+Ohashi (full),MLE,0.212,0.239,N/A,0.0,0,0
+Ohashi (full),partial_pooling,0.246,0.21,N/A,0.0,0,0
+Ohashi (full),no_pooling,0.308,0.201,N/A,0.0,0,0
+Ohashi (reduced),MLE,0.648,1.194,N/A,0.0,0,0
+Ohashi (reduced),partial_pooling,0.82,1.48,N/A,0.0,0,0
+Ohashi (reduced),no_pooling,0.762,1.393,N/A,0.0,0,0

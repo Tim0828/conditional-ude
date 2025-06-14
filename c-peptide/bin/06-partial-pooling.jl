@@ -67,12 +67,10 @@ if train_model
     end
     # initial parameters
     result = get_initial_parameters(train_data, indices_validation, models_train, n_samples, n_best)
-    initial_nn_sets = result.nn_params
-
-    # Train the n best initial neural network sets
+    initial_nn_sets = result.nn_params    # Train the n best initial neural network sets
     println("Training ADVI models...")
     nn_params, betas, betas_test, advi_model,
-    advi_model_test, training_results = train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, models_train, test_data, models_test, advi_iterations, advi_test_iterations)
+    advi_model_test, training_results = train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
 
     # Train betas for training with fixed neural network parameters too for consistency
     println("Training betas on training data...")

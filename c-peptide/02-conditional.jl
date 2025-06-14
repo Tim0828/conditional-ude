@@ -1,5 +1,5 @@
 # Model fit to the train data and evaluation on the test data
-train_model = true
+train_model = false
 figures = true
 folder = "MLE"
 dataset = "ohashi_low"
@@ -22,7 +22,7 @@ rng = StableRNG(232705)
 
 include("src/c_peptide_ude_models.jl")
 include("src/plotting-functions.jl")
-
+include("src/preprocessing.jl")
 # Load the data
 train_data, test_data = jldopen("data/$dataset.jld2") do file
     file["train"], file["test"]
@@ -37,7 +37,11 @@ models_train = [
     CPeptideCUDEModel(train_data.glucose[i,:], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i,:], t2dm[i]) for i in axes(train_data.glucose, 1)
 ]
 # train on 70%, select on 30%
-indices_train, indices_validation = stratified_split(rng, train_data.types, 0.7)
+(subject_numbers, subject_info_filtered, types, timepoints, glucose_indices, cpeptide_indices, ages,
+    body_weights, bmis, glucose_data, cpeptide_data, disposition_indices, first_phase, second_phase, isi, total) = load_data()
+subject_numbers_training = train_data.training_indices
+metrics_train = [first_phase[subject_numbers_training], second_phase[subject_numbers_training], ages[subject_numbers_training], isi[subject_numbers_training], body_weights[subject_numbers_training], bmis[subject_numbers_training]]
+indices_train, indices_validation = optimize_split(types[subject_numbers_training], metrics_train, 0.7, rng)
 
 # train the models or load the trained model neural network parameters
 if train_model
@@ -94,6 +98,12 @@ objectives_test = [optsol.objective for optsol in optsols]
 
 function argmedian(x)
     return argmin(abs.(x .- median(x)))
+end
+
+# save betas 
+jldopen("data/MLE/betas_$dataset.jld2", "w") do file
+    file["train"] = betas_train
+    file["test"] = betas_test
 end
 
 # save mse
@@ -246,6 +256,13 @@ if figures
                        xlabel="β", 
                        ylabel="Density",
                        title="Density of β values (Training Data)")
+
+        # overall density plot for training data
+        density!(ax_train, betas_train, 
+                color=Makie.wong_colors()[4], 
+                strokecolor=Makie.wong_colors()[4],
+                strokewidth=2,
+                label="Overall")
         
         # Create density plot for each type in training data
         for (i, type) in enumerate(unique(train_data.types))
@@ -267,6 +284,13 @@ if figures
                       xlabel="β", 
                       ylabel="Density",
                       title="Density of β values (Test Data)")
+
+        # overall density plot for test data
+        density!(ax_test, betas_test, 
+                color=Makie.wong_colors()[4], 
+                strokecolor=Makie.wong_colors()[4],
+                strokewidth=2,
+                label="Overall")
         
         # Create density plot for each type in test data
         for (i, type) in enumerate(unique(test_data.types))

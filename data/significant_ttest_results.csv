@@ -1,0 +1,5 @@
+Dataset,Subject_Type,Model1,Model2,Mean_MSE1,Mean_MSE2,Mean_Difference,T_Statistic,P_Value
+Ohashi (full),All,Partial_Pooling,No_Pooling,0.246,0.308,-0.061,-2.276,0.029
+Ohashi (full),T2DM,MLE,Partial_Pooling,0.091,0.242,-0.151,-2.542,0.023
+Ohashi (full),T2DM,MLE,No_Pooling,0.091,0.363,-0.272,-3.829,0.002
+Ohashi (full),T2DM,Partial_Pooling,No_Pooling,0.242,0.363,-0.122,-2.799,0.014

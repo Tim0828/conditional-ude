@@ -1,0 +1,37 @@
+Model_Type,Dataset,Metric,Correlation,P_Value,Significant
+MLE,Ohashi (full),First Phase Clamp,-0.801,0.0,true
+MLE,Ohashi (full),Second Phase Clamp,-0.797,0.0,true
+MLE,Ohashi (full),Age,0.632,0.0,true
+MLE,Ohashi (full),Insulin Sensitivity,-0.603,0.0,true
+MLE,Ohashi (full),Body Weight,0.319,0.062,false
+MLE,Ohashi (full),BMI,0.377,0.026,true
+partial_pooling,Ohashi (full),First Phase Clamp,-0.766,0.0,true
+partial_pooling,Ohashi (full),Second Phase Clamp,-0.778,0.0,true
+partial_pooling,Ohashi (full),Age,0.526,0.001,true
+partial_pooling,Ohashi (full),Insulin Sensitivity,-0.366,0.03,true
+partial_pooling,Ohashi (full),Body Weight,0.131,0.453,false
+partial_pooling,Ohashi (full),BMI,0.191,0.271,false
+no_pooling,Ohashi (full),First Phase Clamp,-0.734,0.0,true
+no_pooling,Ohashi (full),Second Phase Clamp,-0.745,0.0,true
+no_pooling,Ohashi (full),Age,0.513,0.002,true
+no_pooling,Ohashi (full),Insulin Sensitivity,-0.266,0.122,false
+no_pooling,Ohashi (full),Body Weight,0.09,0.608,false
+no_pooling,Ohashi (full),BMI,0.174,0.318,false
+MLE,Ohashi (reduced),First Phase Clamp,-0.096,0.715,false
+MLE,Ohashi (reduced),Second Phase Clamp,0.066,0.801,false
+MLE,Ohashi (reduced),Age,-0.467,0.059,false
+MLE,Ohashi (reduced),Insulin Sensitivity,-0.071,0.786,false
+MLE,Ohashi (reduced),Body Weight,-0.167,0.523,false
+MLE,Ohashi (reduced),BMI,-0.377,0.135,false
+partial_pooling,Ohashi (reduced),First Phase Clamp,-0.032,0.903,false
+partial_pooling,Ohashi (reduced),Second Phase Clamp,0.066,0.801,false
+partial_pooling,Ohashi (reduced),Age,0.516,0.034,true
+partial_pooling,Ohashi (reduced),Insulin Sensitivity,-0.186,0.474,false
+partial_pooling,Ohashi (reduced),Body Weight,0.289,0.26,false
+partial_pooling,Ohashi (reduced),BMI,0.466,0.06,false
+no_pooling,Ohashi (reduced),First Phase Clamp,0.412,0.101,false
+no_pooling,Ohashi (reduced),Second Phase Clamp,0.346,0.174,false
+no_pooling,Ohashi (reduced),Age,0.458,0.064,false
+no_pooling,Ohashi (reduced),Insulin Sensitivity,-0.238,0.358,false
+no_pooling,Ohashi (reduced),Body Weight,0.419,0.094,false
+no_pooling,Ohashi (reduced),BMI,0.544,0.024,true
