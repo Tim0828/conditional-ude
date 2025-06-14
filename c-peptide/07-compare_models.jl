@@ -1,4 +1,4 @@
-using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra, HypothesisTests
+using JLD2, StableRNGs, CairoMakie, DataFrames, CSV, StatsBase, Turing, Turing.Variational, LinearAlgebra, HypothesisTests, Distributions
 using Bijectors: bijector
 
 include("src/plotting-functions.jl")
@@ -26,6 +26,16 @@ end
 function get_subject_type_indices(data, subject_type)
     type_mask = data.types .== subject_type
     return type_mask
+end
+
+# Function to round numeric columns in a DataFrame
+function round_numeric_columns!(df, digits=3)
+    for col in names(df)
+        if eltype(df[!, col]) <: AbstractFloat
+            df[!, col] = round.(df[!, col], digits=digits)
+        end
+    end
+    return df
 end
 
 # Function to perform paired t-tests
@@ -144,6 +154,116 @@ function perform_unpaired_ttest(mse1, mse2, label1, label2, description)
     end
 
     return test_result
+end
+
+# Function to calculate correlations between betas and physiological metrics
+function calculate_beta_correlations(betas, test_data, model_type, dataset)
+    correlations_df = DataFrame(
+        Model_Type=String[],
+        Dataset=String[],
+        Metric=String[],
+        Correlation=Float64[],
+        P_Value=Float64[],
+        Significant=Bool[]
+    )
+
+    # Define metrics and their names
+    metrics = [
+        test_data.first_phase,
+        test_data.second_phase,
+        test_data.ages,
+        test_data.insulin_sensitivity,
+        test_data.body_weights,
+        test_data.bmis
+    ]
+
+    metric_names = [
+        "First_Phase_Clamp",
+        "Second_Phase_Clamp",
+        "Age",
+        "Insulin_Sensitivity",
+        "Body_Weight",
+        "BMI"
+    ]
+
+    # Calculate correlations for each metric
+    for (metric, name) in zip(metrics, metric_names)
+        # Filter out missing values
+        valid_indices = .!ismissing.(betas) .& .!ismissing.(metric)
+
+        if sum(valid_indices) > 2  # Need at least 3 points for correlation
+            correlation = corspearman(betas[valid_indices], metric[valid_indices])
+
+            # Calculate p-value using simple correlation test
+            n = sum(valid_indices)
+            if abs(correlation) < 0.9999  # Avoid division by zero
+                t_stat = correlation * sqrt((n - 2) / (1 - correlation^2))
+                p_value = 2 * (1 - cdf(TDist(n - 2), abs(t_stat)))
+            else
+                p_value = 0.0  # Perfect correlation
+            end
+
+            push!(correlations_df, (
+                Model_Type=model_type,
+                Dataset=dataset,
+                Metric=name,
+                Correlation=correlation,
+                P_Value=p_value,
+                Significant=p_value < 0.05
+            ))
+        end
+    end
+
+    return correlations_df
+end
+
+# Function to perform t-tests comparing correlations between models
+function compare_model_correlations(correlations_df, model1, model2, dataset)
+    comparison_df = DataFrame(
+        Dataset=String[],
+        Metric=String[],
+        Model1=String[],
+        Model2=String[],
+        Correlation1=Float64[],
+        Correlation2=Float64[],
+        Correlation_Difference=Float64[],
+        Comparison_Result=String[]
+    )
+
+    # Get unique metrics
+    metrics = unique(correlations_df.Metric)
+
+    for metric in metrics
+        # Get correlations for each model
+        corr1_row = filter(row -> row.Model_Type == model1 && row.Dataset == dataset && row.Metric == metric, correlations_df)
+        corr2_row = filter(row -> row.Model_Type == model2 && row.Dataset == dataset && row.Metric == metric, correlations_df)
+
+        if !isempty(corr1_row) && !isempty(corr2_row)
+            corr1 = first(corr1_row).Correlation
+            corr2 = first(corr2_row).Correlation
+            diff = corr1 - corr2
+
+            # Simple interpretation based on correlation magnitude difference
+            if abs(diff) > 0.1
+                result = abs(corr1) > abs(corr2) ? "$model1 stronger" : "$model2 stronger"
+            else
+                result = "Similar"
+            end
+
+            push!(comparison_df, (
+                Dataset=dataset,
+                Metric=metric,
+                Model1=model1,
+                Model2=model2,
+                Correlation1=corr1,
+                Correlation2=corr2,
+                Correlation_Difference=diff,
+                Comparison_Result=result
+            ))
+        end
+    end
+
+    return comparison_df
 end
 
 # Adapted functions for compare_models.jl
@@ -516,8 +636,12 @@ println("\nSUMMARY OF ALL T-TEST RESULTS:")
 println("="^100)
 show(summary_results, allrows=true, allcols=true)
 
+# Round numeric columns before saving
+summary_results_rounded = copy(summary_results)
+round_numeric_columns!(summary_results_rounded, 3)
+
 # Save summary table
-CSV.write("data/ttest_summary_results.csv", summary_results)
+CSV.write("data/ttest_summary_results.csv", summary_results_rounded)
 println("\n\nSummary results saved to: data/ttest_summary_results.csv")
 
 # Display significant results only
@@ -529,4 +653,460 @@ if nrow(significant_results) > 0
 else
     println("\n\nNo significant differences found in any comparison.")
 end
+
+# 5. Beta Correlation Analysis
+println("\n" * "#"^80)
+println("5. BETA CORRELATION ANALYSIS")
+println("#"^80)
+
+# Calculate correlations for all models and datasets
+all_correlations = DataFrame()
+
+for dataset in datasets
+    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+
+    for model_type in model_types
+        # Get betas for this model and dataset
+        if haskey(models["$(dataset)_$(model_type)"], "beta_test")
+            betas = models["$(dataset)_$(model_type)"]["beta_test"]
+        else
+            println("Warning: No beta_test found for $(dataset)_$(model_type)")
+            continue
+        end
+
+        # Calculate correlations
+        model_correlations = calculate_beta_correlations(betas, current_test_data, model_type, dataset)
+        append!(all_correlations, model_correlations)
+    end
+end
+
+# Display correlation results
+println("\nBETA-PHYSIOLOGICAL METRIC CORRELATIONS:")
+println("="^100)
+show(all_correlations, allrows=true, allcols=true)
+
+# Round numeric columns before saving
+all_correlations_rounded = copy(all_correlations)
+round_numeric_columns!(all_correlations_rounded, 3)
+
+# Save correlation results
+CSV.write("data/beta_correlations_results.csv", all_correlations_rounded)
+println("\nCorrelation results saved to: data/beta_correlations_results.csv")
+
+# Display significant correlations only
+significant_correlations = filter(row -> row.Significant, all_correlations)
+if nrow(significant_correlations) > 0
+    println("\n\nSIGNIFICANT CORRELATIONS ONLY:")
+    println("="^100)
+    show(significant_correlations, allrows=true, allcols=true)
+else
+    println("\n\nNo significant correlations found.")
+end
+
+# Create bar chart for significant correlations by method and dataset
+println("\n" * "="^80)
+println("SIGNIFICANT CORRELATIONS BAR CHART")
+println("="^80)
+
+# Function to create bar chart of significant correlations
+function create_significant_correlations_barchart(correlations_df)
+    # Count significant correlations by model type and dataset
+    sig_counts = combine(
+        groupby(filter(row -> row.Significant, correlations_df), [:Model_Type, :Dataset]),
+        nrow => :Count
+    )
+
+    # Create complete combination of all model types and datasets (fill missing with 0)
+    complete_combinations = DataFrame()
+    for model_type in model_types
+        for dataset in datasets
+            push!(complete_combinations, (Model_Type=model_type, Dataset=dataset))
+        end
+    end
+
+    # Merge with actual counts and fill missing with 0
+    sig_counts_complete = leftjoin(complete_combinations, sig_counts, on=[:Model_Type, :Dataset])
+    sig_counts_complete.Count = coalesce.(sig_counts_complete.Count, 0)
+
+    # Create the bar chart
+    fig = Figure(size=(900, 600))
+    ax = Axis(fig[1, 1],
+        xlabel="Model Type",
+        ylabel="Number of Significant Correlations",
+        title="Significant Beta-Physiological Correlations by Model and Dataset")
+
+    # Define colors for datasets
+    dataset_colors = Dict(
+        "ohashi_rich" => Makie.wong_colors()[1],
+        "ohashi_low" => Makie.wong_colors()[2]
+    )
+
+    # Define x positions for each model type
+    model_positions = Dict(
+        "MLE" => 1,
+        "partial_pooling" => 2,
+        "no_pooling" => 3
+    )
+
+    bar_width = 0.35
+    offset = bar_width / 2
+
+    # Plot bars for each dataset
+    for (dataset_idx, dataset) in enumerate(datasets)
+        dataset_data = filter(row -> row.Dataset == dataset, sig_counts_complete)
+
+        x_positions = [model_positions[model] + (dataset_idx - 1.5) * offset for model in dataset_data.Model_Type]
+        y_values = dataset_data.Count
+
+        barplot!(ax, x_positions, y_values,
+            width=bar_width,
+            color=dataset_colors[dataset],
+            label=replace(dataset, "_" => " ") |> titlecase)
+    end
+
+    # Customize x-axis
+    ax.xticks = (1:length(model_types), replace.(model_types, "_" => " ") .|> titlecase)
+
+    # Add legend
+    Legend(fig[1, 2], ax, "Dataset")
+
+    # Add value labels on bars
+    for (dataset_idx, dataset) in enumerate(datasets)
+        dataset_data = filter(row -> row.Dataset == dataset, sig_counts_complete)
+        x_positions = [model_positions[model] + (dataset_idx - 1.5) * offset for model in dataset_data.Model_Type]
+        y_values = dataset_data.Count
+
+        for (x, y) in zip(x_positions, y_values)
+            if y > 0  # Only show labels for non-zero values
+                text!(ax, x, y + 0.1, text=string(y), align=(:center, :bottom), fontsize=12)
+            end
+        end
+    end
+
+    # Set y-axis to start from 0 and add some padding
+    ylims!(ax, 0, nothing)
+
+    return fig, sig_counts_complete
+end
+
+# Create and save the bar chart
+fig, sig_counts_table = create_significant_correlations_barchart(all_correlations)
+save("figures/significant_correlations_barchart.png", fig)
+println("Significant correlations bar chart saved: figures/significant_correlations_barchart.png")
+
+# Display the counts table
+println("\nSignificant Correlations Count by Model and Dataset:")
+println("="^60)
+show(sig_counts_table, allrows=true, allcols=true)
+
+# Save the counts table
+CSV.write("data/significant_correlations_counts.csv", sig_counts_table)
+println("\nSignificant correlations counts saved to: data/significant_correlations_counts.csv")
+
+# 6. Correlation Comparison Between Models
+println("\n" * "#"^80)
+println("6. CORRELATION COMPARISON BETWEEN MODELS")
+println("#"^80)
+
+# Compare correlations between model types for each dataset
+all_correlation_comparisons = DataFrame()
+
+for dataset in datasets
+    println("\n" * "-"^50)
+    println("DATASET: $dataset")
+    println("-"^50)
+
+    # Compare all pairs of models
+    model_pairs = [
+        ("MLE", "partial_pooling"),
+        ("MLE", "no_pooling"),
+        ("partial_pooling", "no_pooling")
+    ]
+
+    for (model1, model2) in model_pairs
+        comparison = compare_model_correlations(all_correlations, model1, model2, dataset)
+        append!(all_correlation_comparisons, comparison)
+
+        if nrow(comparison) > 0
+            println("\nComparing $model1 vs $model2:")
+            show(comparison, allrows=true, allcols=true)
+        end
+    end
+end
+
+# Round numeric columns before saving
+all_correlation_comparisons_rounded = copy(all_correlation_comparisons)
+round_numeric_columns!(all_correlation_comparisons_rounded, 3)
+
+# Save correlation comparison results
+CSV.write("data/beta_correlation_comparisons.csv", all_correlation_comparisons_rounded)
+println("\nCorrelation comparison results saved to: data/beta_correlation_comparisons.csv")
+
+# Summary of correlation patterns
+println("\n" * "="^80)
+println("CORRELATION ANALYSIS SUMMARY")
+println("="^80)
+
+# Group by metric and show average correlations across models
+correlation_summary = combine(groupby(all_correlations, [:Metric, :Model_Type]),
+    :Correlation => mean => :Avg_Correlation,
+    :Significant => sum => :Num_Significant)
+
+println("\nAverage correlations by metric and model:")
+show(correlation_summary, allrows=true, allcols=true)
+
+# Find strongest correlations
+strongest_correlations = sort(all_correlations, :Correlation, rev=true)[1:min(10, nrow(all_correlations)), :]
+println("\nStrongest correlations (top 10):")
+show(strongest_correlations[:, [:Model_Type, :Dataset, :Metric, :Correlation, :Significant]], allrows=true, allcols=true)
+
+# 7. Comprehensive Model Comparison Table
+println("\n" * "#"^80)
+println("7. COMPREHENSIVE MODEL COMPARISON TABLE")
+println("#"^80)
+
+# Create a comprehensive comparison table combining MSE and correlation results
+comprehensive_comparison = DataFrame(
+    Dataset=String[],
+    Model_Type=String[],
+    Mean_MSE=Float64[],
+    Std_MSE=Float64[],
+    Best_Correlation_Metric=String[],
+    Best_Correlation_Value=Float64[],
+    Num_Significant_Correlations=Int[],
+    Overall_Performance_Rank=Int[]
+)
+
+for dataset in datasets
+    for model_type in model_types
+        # Get MSE statistics
+        mse_values = models["$(dataset)_$(model_type)"]["mse"]
+        mean_mse = mean(mse_values)
+        std_mse = std(mse_values)
+
+        # Get correlation statistics for this model and dataset
+        model_correlations = filter(row -> row.Model_Type == model_type && row.Dataset == dataset, all_correlations)
+
+        if !isempty(model_correlations)
+            # Find best (highest absolute) correlation
+            best_corr_idx = argmax(abs.(model_correlations.Correlation))
+            best_corr_metric = model_correlations.Metric[best_corr_idx]
+            best_corr_value = model_correlations.Correlation[best_corr_idx]
+            num_sig_corr = sum(model_correlations.Significant)
+        else
+            best_corr_metric = "N/A"
+            best_corr_value = 0.0
+            num_sig_corr = 0
+        end
+
+        push!(comprehensive_comparison, (
+            Dataset=dataset,
+            Model_Type=model_type,
+            Mean_MSE=mean_mse,
+            Std_MSE=std_mse,
+            Best_Correlation_Metric=best_corr_metric,
+            Best_Correlation_Value=best_corr_value,
+            Num_Significant_Correlations=num_sig_corr,
+            Overall_Performance_Rank=0  # Will be calculated below
+        ))
+    end
+end
+
+# Calculate performance ranking (lower MSE = better, more correlations = better)
+for dataset in datasets
+    dataset_rows = comprehensive_comparison.Dataset .== dataset
+    dataset_subset = comprehensive_comparison[dataset_rows, :]
+
+    # Rank by MSE (1 = best, lowest MSE)
+    mse_ranks = ordinalrank(dataset_subset.Mean_MSE)
+    # Rank by number of significant correlations (1 = best, most correlations)
+    corr_ranks = ordinalrank(-dataset_subset.Num_Significant_Correlations)
+
+    # Combined rank (lower is better)
+    combined_ranks = mse_ranks + corr_ranks
+    overall_ranks = ordinalrank(combined_ranks)
+
+    comprehensive_comparison.Overall_Performance_Rank[dataset_rows] = overall_ranks
+end
+
+println("\nCOMPREHENSIVE MODEL COMPARISON:")
+println("="^120)
+show(comprehensive_comparison, allrows=true, allcols=true)
+
+# Round numeric columns before saving
+comprehensive_comparison_rounded = copy(comprehensive_comparison)
+round_numeric_columns!(comprehensive_comparison_rounded, 3)
+
+# Save comprehensive comparison
+CSV.write("data/comprehensive_model_comparison.csv", comprehensive_comparison_rounded)
+println("\nComprehensive comparison saved to: data/comprehensive_model_comparison.csv")
+
+# Display best performing models
+println("\n" * "="^80)
+println("BEST PERFORMING MODELS BY DATASET")
+println("="^80)
+
+for dataset in datasets
+    dataset_subset = filter(row -> row.Dataset == dataset, comprehensive_comparison)
+    best_model = dataset_subset[argmin(dataset_subset.Overall_Performance_Rank), :]
+
+    println("\nBest model for $dataset:")
+    println("  Model: $(best_model.Model_Type)")
+    println("  Mean MSE: $(round(best_model.Mean_MSE, digits=4))")
+    println("  Best correlation: $(best_model.Best_Correlation_Value) with $(best_model.Best_Correlation_Metric)")
+    println("  Significant correlations: $(best_model.Num_Significant_Correlations)")
+end
+
+println("\n" * "="^80)
+println("SECTION 7: DIC COMPARISON BETWEEN POOLING METHODS")
+println("="^80)
+
+# Function to load DIC values
+function load_dic_values()
+    dic_values = Dict()
+
+    # Define the pooling types to compare
+    pooling_types = ["partial_pooling", "no_pooling"]
+
+    for pooling_type in pooling_types
+        dic_values[pooling_type] = Dict()
+
+        for dataset in datasets
+            dic_file_path = "data/$pooling_type/dic_$dataset.jld2"
+
+            if isfile(dic_file_path)
+                try
+                    dic_value = jldopen(dic_file_path) do file
+                        file["dic"]
+                    end
+                    dic_values[pooling_type][dataset] = dic_value
+                    println("Loaded DIC for $pooling_type - $dataset: $(round(dic_value, digits=3))")
+                catch e
+                    println("Warning: Could not load DIC from $dic_file_path: $e")
+                    dic_values[pooling_type][dataset] = missing
+                end
+            else
+                println("Warning: DIC file not found: $dic_file_path")
+                dic_values[pooling_type][dataset] = missing
+            end
+        end
+    end
+
+    return dic_values
+end
+
+# Load DIC values
+dic_values = load_dic_values()
+
+# Create DIC comparison DataFrame
+dic_comparison = DataFrame(
+    Dataset=String[],
+    Partial_Pooling_DIC=Float64[],
+    No_Pooling_DIC=Float64[],
+    DIC_Difference=Float64[],
+    Better_Model=String[],
+    DIC_Improvement=Float64[]
+)
+
+println("\n" * "="^60)
+println("DIC COMPARISON RESULTS")
+println("="^60)
+
+for dataset in datasets
+    partial_dic = dic_values["partial_pooling"][dataset]
+    no_pooling_dic = dic_values["no_pooling"][dataset]
+
+    if !ismissing(partial_dic) && !ismissing(no_pooling_dic)
+        dic_diff = partial_dic - no_pooling_dic
+        better_model = dic_diff < 0 ? "Partial Pooling" : "No Pooling"
+        improvement = abs(dic_diff)
+
+        push!(dic_comparison, (
+            Dataset=dataset,
+            Partial_Pooling_DIC=partial_dic,
+            No_Pooling_DIC=no_pooling_dic,
+            DIC_Difference=dic_diff,
+            Better_Model=better_model,
+            DIC_Improvement=improvement
+        ))
+
+        println("\nDataset: $dataset")
+        println("  Partial Pooling DIC: $(round(partial_dic, digits=3))")
+        println("  No Pooling DIC: $(round(no_pooling_dic, digits=3))")
+        println("  Difference (Partial - No): $(round(dic_diff, digits=3))")
+        println("  Better model: $better_model (by $(round(improvement, digits=3)))")
+
+        if dic_diff < 0
+            println("  → Partial pooling provides better model fit")
+        else
+            println("  → No pooling provides better model fit")
+        end
+    else
+        println("\nDataset: $dataset - Missing DIC values")
+    end
+end
+
+# Display comprehensive DIC comparison table
+println("\n" * "="^80)
+println("COMPREHENSIVE DIC COMPARISON TABLE")
+println("="^80)
+show(dic_comparison, allrows=true, allcols=true)
+
+# Round numeric columns before saving
+dic_comparison_rounded = copy(dic_comparison)
+round_numeric_columns!(dic_comparison_rounded, 3)
+
+# Save DIC comparison results
+CSV.write("data/dic_comparison.csv", dic_comparison_rounded)
+println("\n\nDIC comparison saved to: data/dic_comparison.csv")
+
+# Statistical analysis of DIC differences
+if nrow(dic_comparison) > 0
+    println("\n" * "="^60)
+    println("DIC COMPARISON STATISTICAL SUMMARY")
+    println("="^60)
+
+    mean_improvement = mean(dic_comparison.DIC_Improvement)
+    std_improvement = std(dic_comparison.DIC_Improvement)
+
+    println("Mean DIC improvement: $(round(mean_improvement, digits=3))")
+    println("Standard deviation: $(round(std_improvement, digits=3))")
+
+    # Count which model is better more often
+    partial_better_count = sum(dic_comparison.Better_Model .== "Partial Pooling")
+    no_pooling_better_count = sum(dic_comparison.Better_Model .== "No Pooling")
+
+    println("Partial pooling is better: $partial_better_count out of $(nrow(dic_comparison)) datasets")
+    println("No pooling is better: $no_pooling_better_count out of $(nrow(dic_comparison)) datasets")
+
+    if partial_better_count > no_pooling_better_count
+        println("→ Overall: Partial pooling tends to perform better")
+    elseif no_pooling_better_count > partial_better_count
+        println("→ Overall: No pooling tends to perform better")
+    else
+        println("→ Overall: Both methods perform equally well")
+    end
+
+    # Perform paired t-test on DIC values if we have both datasets
+    if nrow(dic_comparison) == 2
+        println("\n" * "="^40)
+        println("PAIRED T-TEST ON DIC VALUES")
+        println("="^40)
+
+        partial_dics = dic_comparison.Partial_Pooling_DIC
+        no_pooling_dics = dic_comparison.No_Pooling_DIC
+
+        ttest_result = perform_paired_ttest(
+            partial_dics,
+            no_pooling_dics,
+            "Partial Pooling",
+            "No Pooling",
+            "DIC values between pooling methods"
+        )
+    end
+end
+
+println("\n" * "="^80)
+println("MODEL COMPARISON ANALYSIS COMPLETE")
+println("="^80)
 
