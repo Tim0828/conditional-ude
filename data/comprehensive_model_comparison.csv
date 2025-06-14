@@ -1,7 +1,7 @@
 Dataset,Model_Type,Mean_MSE,Std_MSE,Best_Correlation_Metric,Best_Correlation_Value,Num_Significant_Correlations,Overall_Performance_Rank
-ohashi_rich,MLE,0.212,0.239,First_Phase_Clamp,-0.801,5,1
-ohashi_rich,partial_pooling,0.246,0.21,Second_Phase_Clamp,-0.778,4,2
-ohashi_rich,no_pooling,0.308,0.201,Second_Phase_Clamp,-0.745,3,3
-ohashi_low,MLE,0.648,1.194,Age,-0.467,0,1
-ohashi_low,partial_pooling,0.82,1.48,Age,0.516,1,2
-ohashi_low,no_pooling,0.762,1.393,BMI,0.544,1,3
+Ohashi (full),MLE,0.212,0.239,N/A,0.0,0,0
+Ohashi (full),partial_pooling,0.246,0.21,N/A,0.0,0,0
+Ohashi (full),no_pooling,0.308,0.201,N/A,0.0,0,0
+Ohashi (reduced),MLE,0.648,1.194,N/A,0.0,0,0
+Ohashi (reduced),partial_pooling,0.82,1.48,N/A,0.0,0,0
+Ohashi (reduced),no_pooling,0.762,1.393,N/A,0.0,0,0
