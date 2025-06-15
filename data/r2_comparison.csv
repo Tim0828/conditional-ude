@@ -1,0 +1,7 @@
+Dataset,Model_Type,R2_Test,R2_Train
+Ohashi (Full),MLE,0.8707,0.8967
+Ohashi (Full),partial_pooling,0.5064,-1.858
+Ohashi (Full),no_pooling,-2.4461,-1.5611
+Ohashi (Reduced),MLE,0.8371,0.9072
+Ohashi (Reduced),partial_pooling,-0.5199,-1.9146
+Ohashi (Reduced),no_pooling,-0.5968,-2.1609

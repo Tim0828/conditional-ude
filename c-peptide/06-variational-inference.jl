@@ -15,34 +15,6 @@ function cude_vi(CONFIG)
     by simply changing the configuration at the top of the file.
     """
 
-    ######### CONFIGURATION ########
-    # Main settings - change these to control the experiment
-    # CONFIG = (
-    #     # Model settings
-    #     pooling_type="partial_pooling",  # "partial_pooling" or "no_pooling"
-    #     dataset="ohashi_low",
-
-    #     # Training settings
-    #     train_model=true,
-    #     quick_train=false,  # Set to true for faster testing
-
-
-    #     # Analysis settings
-    #     figures=true,
-
-    #     # Training parameters (used if not quick_train)
-    #     advi_iterations=2000,
-    #     advi_test_iterations=2000,
-    #     n_samples=50_000,
-    #     n_best=3,
-
-    #     # Quick training parameters (used if quick_train)
-    #     quick_advi_iterations=1,
-    #     quick_advi_test_iterations=1,
-    #     quick_n_samples=10_000,
-    #     quick_n_best=1
-    # )
-
     # Derived settings
     folder = CONFIG.pooling_type
     dataset = CONFIG.dataset
@@ -184,9 +156,45 @@ function cude_vi(CONFIG)
         # Compute DIC for the test set
         dic = compute_dic(advi_model_test, turing_model_test, test_data.cpeptide, models_test, nn_params, test_data.timepoints)
         println("DIC for $(CONFIG.pooling_type) on $(CONFIG.dataset): ", round(dic, digits=2))
-
         # save DIC 
         save("data/$folder/dic_$dataset.jld2", "dic", dic)
+
+        # Calculate R² for the test set
+        function calculate_r_squared(cpeptide_data, betas, nn_params, models, timepoints)
+            n_subjects = length(models)
+            r2_values = Float64[]
+            
+            for i in 1:n_subjects
+            # Get model predictions using ADVI_predict
+            predictions = ADVI_predict(betas[i], nn_params, models[i].problem, timepoints)
+            
+            # Calculate R² for this subject
+            observed = cpeptide_data[i, :]
+            ss_res = sum((observed .- predictions).^2)
+            ss_tot = sum((observed .- mean(observed)).^2)
+            r2 = 1 - (ss_res / ss_tot)
+            
+            push!(r2_values, r2)
+            end
+            
+            return r2_values
+        end
+        
+        # Calculate R² for the test set
+        r2_test = calculate_r_squared(current_cpeptide, current_betas, nn_params, current_models_subset, current_timepoints)
+        println("Test R² for $(CONFIG.pooling_type) on $(CONFIG.dataset): ", round(mean(r2_test), digits=4))
+        
+        # Calculate R² for the training set
+        r2_train = calculate_r_squared(train_data.cpeptide[indices_train, :], betas_training, nn_params, models_train[indices_train], train_data.timepoints)
+        println("Train R² for $(CONFIG.pooling_type) on $(CONFIG.dataset): ", round(mean(r2_train), digits=4))
+        
+        # Save R² values
+        # Save R² values
+        jldopen("data/$(CONFIG.pooling_type)/r2_$dataset.jld2", "w") do file
+            file["train"] = r2_train
+            file["test"] = r2_test
+        end
+        
         
         # Generate all plots
         correlation_figure(betas_training, current_betas, train_data, test_data, indices_train, folder, CONFIG.dataset)

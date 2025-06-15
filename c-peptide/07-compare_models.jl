@@ -979,7 +979,234 @@ round_numeric_columns!(dic_comparison_rounded, 3)
 CSV.write("data/dic_comparison.csv", dic_comparison_rounded)
 println("\n\nDIC comparison saved to: data/dic_comparison.csv")
 
+# 8. R² Comparison Between Models
+println("\n" * "="^80)
+println("SECTION 8: R² COMPARISON BETWEEN MODELS")
+println("="^80)
 
+# Function to load R² values
+function load_r2_values()
+    r2_values = Dict()
+
+    for model_type in model_types
+        r2_values[model_type] = Dict()
+
+        for dataset in datasets
+            r2_test_file = "data/$model_type/r2_$dataset.jld2"
+            r2_train_file = "data/$model_type/r2_$dataset.jld2"
+
+            # Load test R²
+            if isfile(r2_test_file)
+                try
+                    r2_test = jldopen(r2_test_file) do file
+                        file["test"]
+                    end
+                    r2_values[model_type][dataset] = Dict("test" => r2_test)
+                    println("Loaded R² test for $model_type - $dataset: $(round(mean(r2_test), digits=4))")
+                catch e
+                    println("Warning: Could not load R² test from $r2_test_file: $e")
+                    r2_values[model_type][dataset] = Dict("test" => missing)
+                end
+            else
+                println("Warning: R² test file not found: $r2_test_file")
+                r2_values[model_type][dataset] = Dict("test" => missing)
+            end
+
+            # Load train R²
+            if isfile(r2_train_file)
+                try
+                    r2_train = jldopen(r2_train_file) do file
+                        file["train"]
+                    end
+                    r2_values[model_type][dataset]["train"] = r2_train
+                    println("Loaded R² train for $model_type - $dataset: $(round(mean(r2_train), digits=4))")
+                catch e
+                    println("Warning: Could not load R² train from $r2_train_file: $e")
+                    r2_values[model_type][dataset]["train"] = missing
+                end
+            else
+                println("Warning: R² train file not found: $r2_train_file")
+                r2_values[model_type][dataset]["train"] = missing
+            end
+        end
+    end
+
+    return r2_values
+end
+
+# Load R² values
+r2_values = load_r2_values()
+
+# Create R² comparison DataFrame for visualization
+r2_comparison = DataFrame(
+    Dataset=String[],
+    Model_Type=String[],
+    R2_Test=Float64[],
+    R2_Train=Float64[]
+)
+
+println("\n" * "="^60)
+println("R² COMPARISON RESULTS")
+println("="^60)
+
+for dataset in datasets
+    dataset_display = dataset == "ohashi_rich" ? "Ohashi (Full)" : "Ohashi (Reduced)"
+    
+    for model_type in model_types
+        r2_test = mean(r2_values[model_type][dataset]["test"])
+        r2_train = mean(r2_values[model_type][dataset]["train"])
+        
+        if !ismissing(r2_test) && !ismissing(r2_train)
+            push!(r2_comparison, (
+                Dataset=dataset_display,
+                Model_Type=model_type,
+                R2_Test=r2_test,
+                R2_Train=r2_train
+            ))
+            
+            println("$dataset_display - $model_type:")
+            println("  Test R²: $(round(r2_test, digits=4))")
+            println("  Train R²: $(round(r2_train, digits=4))")
+        end
+    end
+    println()
+end
+
+# Display R² comparison table
+println("\n" * "="^80)
+println("COMPREHENSIVE R² COMPARISON TABLE")
+println("="^80)
+show(r2_comparison, allrows=true, allcols=true)
+
+# Create grouped bar chart for R² comparison
+function create_r2_comparison_barchart(r2_df)
+    fig = Figure(size=(1000, 700))
+    ax = Axis(fig[1, 1],
+        xlabel="Model Type",
+        ylabel="R² Value",
+        title="R² Comparison Across Models and Datasets")
+    
+    # Define colors for datasets and train/test
+    dataset_colors = Dict(
+        "Ohashi (Full)" => Makie.wong_colors()[1],
+        "Ohashi (Reduced)" => Makie.wong_colors()[2]
+    )
+    
+    # Define patterns/transparency for train vs test
+    test_alpha = 1.0
+    train_alpha = 0.6
+    
+    # Get unique datasets and models
+    unique_datasets = unique(r2_df.Dataset)
+    unique_models = unique(r2_df.Model_Type)
+    
+    # Define positions
+    model_positions = Dict(
+        "MLE" => 1,
+        "partial_pooling" => 2,
+        "no_pooling" => 3
+    )
+    
+    bar_width = 0.15
+    
+    # Plot bars
+    for (dataset_idx, dataset) in enumerate(unique_datasets)
+        dataset_data = filter(row -> row.Dataset == dataset, r2_df)
+        
+        for (model_idx, model) in enumerate(dataset_data.Model_Type)
+            x_base = model_positions[model]
+            
+            # Test R² bars
+            x_test = x_base + (dataset_idx - 1.5) * bar_width * 2 - bar_width/2
+            test_val = dataset_data[dataset_data.Model_Type .== model, :R2_Test][1]
+            
+            barplot!(ax, [x_test], [test_val],
+                width=bar_width,
+                color=(dataset_colors[dataset], test_alpha),
+                label=dataset_idx == 1 && model_idx == 1 ? "$dataset (Test)" : "")
+            
+            # Train R² bars
+            x_train = x_base + (dataset_idx - 1.5) * bar_width * 2 + bar_width/2
+            train_val = dataset_data[dataset_data.Model_Type .== model, :R2_Train][1]
+            
+            barplot!(ax, [x_train], [train_val],
+                width=bar_width,
+                color=(dataset_colors[dataset], train_alpha),
+                label=dataset_idx == 1 && model_idx == 1 ? "$dataset (Train)" : "")
+            
+            # # Add value labels
+            # text!(ax, x_test, test_val + 0.01, text=string(round(test_val, digits=3)), 
+            #       align=(:center, :bottom), fontsize=12)
+            # text!(ax, x_train, train_val + 0.01, text=string(round(train_val, digits=3)), 
+            #       align=(:center, :bottom), fontsize=12)
+        end
+    end
+    
+    # Customize axes
+    ax.xticks = (1:length(unique_models), replace.(unique_models, "_" => " ") .|> titlecase)
+    # ylims!(ax, 0, 1.1)
+    
+    # Create custom legend
+    legend_elements = []
+    legend_labels = []
+    
+    for dataset in unique_datasets
+        push!(legend_elements, PolyElement(color=(dataset_colors[dataset], test_alpha)))
+        push!(legend_labels, "$dataset (Test)")
+        push!(legend_elements, PolyElement(color=(dataset_colors[dataset], train_alpha)))
+        push!(legend_labels, "$dataset (Train)")
+    end
+    
+    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset & Type")
+    
+    return fig
+end
+
+# Create and save R² comparison plot
+r2_fig = create_r2_comparison_barchart(r2_comparison)
+save("figures/r2_comparison_barchart.png", r2_fig)
+println("R² comparison bar chart saved: figures/r2_comparison_barchart.png")
+
+
+
+# Round numeric columns and save R² comparison
+r2_comparison_rounded = copy(r2_comparison)
+round_numeric_columns!(r2_comparison_rounded, 4)
+
+CSV.write("data/r2_comparison.csv", r2_comparison_rounded)
+println("R² comparison saved to: data/r2_comparison.csv")
+
+# Calculate and display R² differences between models
+println("\n" * "="^60)
+println("R² PERFORMANCE DIFFERENCES")
+println("="^60)
+
+for dataset in unique(r2_comparison.Dataset)
+    println("\nDataset: $dataset")
+    dataset_data = filter(row -> row.Dataset == dataset, r2_comparison)
+    
+    # Find best performing model for test data
+    best_test_idx = argmax(dataset_data.R2_Test)
+    best_test_model = dataset_data[best_test_idx, :Model_Type]
+    best_test_r2 = dataset_data[best_test_idx, :R2_Test]
+    
+    println("  Best Test R²: $best_test_model ($(round(best_test_r2, digits=4)))")
+    
+    # Find best performing model for train data
+    best_train_idx = argmax(dataset_data.R2_Train)
+    best_train_model = dataset_data[best_train_idx, :Model_Type]
+    best_train_r2 = dataset_data[best_train_idx, :R2_Train]
+    
+    println("  Best Train R²: $best_train_model ($(round(best_train_r2, digits=4)))")
+    
+    # Check for overfitting (large train-test gap)
+    for row in eachrow(dataset_data)
+        gap = row.R2_Train - row.R2_Test
+        if gap > 0.1
+            println("  Potential overfitting in $(row.Model_Type): Gap = $(round(gap, digits=4))")
+        end
+    end
+end
 println("\n" * "="^80)
 println("MODEL COMPARISON ANALYSIS COMPLETE")
 println("="^80)

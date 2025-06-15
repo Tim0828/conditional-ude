@@ -353,6 +353,7 @@ end
 
 
 function estimate_priors(train_data, models, nn_params)
+    return nothing
     # Initialize storage for parameter estimates
     beta_estimates = Float64[]
 
