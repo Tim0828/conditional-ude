@@ -285,7 +285,12 @@ function create_methods_comparison_violin(mse_mle, mse_partial, mse_no_pool, tes
     ax = Axis(fig[1, 1],
         xlabel="Patient Type",
         ylabel="Mean Squared Error",
-        title="MSE Comparison Across Methods$title_suffix")
+        title="MSE Comparison Across Methods$title_suffix",
+        xlabelsize=22,
+        ylabelsize=22,
+        titlesize=24,
+        xticklabelsize=20,
+        yticklabelsize=20)
 
     ylims!(ax, 0, nothing)  # Set y-axis limits
     # Define colors for each method
@@ -344,26 +349,29 @@ function create_methods_comparison_violin(mse_mle, mse_partial, mse_no_pool, tes
     end
 
     # Set x-axis ticks and labels
-    ax.xticks = (1:length(unique_types), unique_types)
-
-    # Create legend
+    ax.xticks = (1:length(unique_types), unique_types)    # Create legend
     legend_elements = [
         [PolyElement(color=(method_colors[method], 0.6)) for method in method_order]...,
         MarkerElement(color=:black, marker=:diamond, markersize=8)
     ]
     legend_labels = ["MLE", "Partial Pooling", "No Pooling", "Mean"]
-    Legend(fig[1, 2], legend_elements, legend_labels, "Method")
+    Legend(fig[1, 2], legend_elements, legend_labels, "Method", labelsize=22, titlesize=24)
 
     return fig
 end
 
 # Function to create violin plot comparing datasets for a single model
 function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, test_data_low, model_type)
-    fig = Figure(size=(800, 600))
+    fig = Figure(size=(700, 400))
     ax = Axis(fig[1, 1],
         xlabel="Patient Type",
         ylabel="Mean Squared Error",
-        title="MSE Comparison Between Datasets - $model_type Model")
+        title="MSE Comparison Between Datasets - $model_type Model",
+        xlabelsize=22,
+        ylabelsize=22,
+        titlesize=24,
+        xticklabelsize=20,
+        yticklabelsize=20)
 
     ylims!(ax, 0, nothing)  # Set y-axis limits
     # Define colors for each dataset
@@ -422,26 +430,29 @@ function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, te
     end
 
     # Set x-axis ticks and labels
-    ax.xticks = (1:length(unique_types), unique_types)
-
-    # Create legend
+    ax.xticks = (1:length(unique_types), unique_types)    # Create legend
     legend_elements = [
         [PolyElement(color=(dataset_colors[dataset], 0.6)) for dataset in dataset_order]...,
         MarkerElement(color=:black, marker=:diamond, markersize=8)
     ]
     legend_labels = ["Ohashi Rich", "Ohashi Low", "Mean"]
-    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset")
+    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset", labelsize=22, titlesize=24)
 
     return fig
 end
 
 # Function to create violin plot comparing all methods and datasets together
 function create_all_methods_datasets_violin(models)
-    fig = Figure(size=(1000, 600))
+    fig = Figure(size=(1200, 800))
     ax = Axis(fig[1, 1],
         xlabel="Model Type",
         ylabel="Mean Squared Error",
-        title="MSE Comparison Across All Methods and Datasets")
+        title="MSE Comparison Across All Methods and Datasets",
+        xlabelsize=22,
+        ylabelsize=22,
+        titlesize=24,
+        xticklabelsize=20,
+        yticklabelsize=20)
 
     ylims!(ax, 0, nothing)  # Set y-axis limits
 
@@ -494,13 +505,13 @@ function create_all_methods_datasets_violin(models)
     # Set x-axis ticks and labels
     ax.xticks = (1:length(method_order), replace.(method_order, "_" => " ") .|> titlecase)
 
-    # Create legend
+    # Create legend with larger font size
     legend_elements = [
         [PolyElement(color=(dataset_colors[dataset], 0.6)) for dataset in dataset_order]...,
         MarkerElement(color=:black, marker=:diamond, markersize=8)
     ]
     legend_labels = ["Ohashi (Full)", "Ohashi (Reduced)", "Mean"]
-    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset")
+    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset", labelsize=22, titlesize=24)
 
     return fig
 end
@@ -816,14 +827,17 @@ function create_significant_correlations_barchart(correlations_df)
 
     # Merge with actual counts and fill missing with 0
     sig_counts_complete = leftjoin(complete_combinations, sig_counts, on=[:Model_Type, :Dataset])
-    sig_counts_complete.Count = coalesce.(sig_counts_complete.Count, 0)
-
-    # Create the bar chart
+    sig_counts_complete.Count = coalesce.(sig_counts_complete.Count, 0)    # Create the bar chart
     fig = Figure(size=(900, 600))
     ax = Axis(fig[1, 1],
         xlabel="Model Type",
         ylabel="Number of Significant Correlations",
-        title="Significant Beta-Physiological Correlations by Model and Dataset")
+        title="Significant Beta-Physiological Correlations by Model and Dataset",
+        xlabelsize=22,
+        ylabelsize=22,
+        titlesize=24,
+        xticklabelsize=20,
+        yticklabelsize=20)
 
     # Define colors for datasets (using converted names)
     dataset_colors = Dict(
@@ -856,10 +870,8 @@ function create_significant_correlations_barchart(correlations_df)
     end
 
     # Customize x-axis
-    ax.xticks = (1:length(model_types), replace.(model_types, "_" => " ") .|> titlecase)
-
-    # Add legend
-    Legend(fig[1, 2], ax, "Dataset")    # Add value labels on bars
+    ax.xticks = (1:length(model_types), replace.(model_types, "_" => " ") .|> titlecase)    # Add legend
+    Legend(fig[1, 2], ax, "Dataset", labelsize=22, titlesize=24)# Add value labels on bars
     for (dataset_idx, dataset_name) in enumerate(unique_datasets)
         dataset_data = filter(row -> row.Dataset == dataset_name, sig_counts_complete)
         x_positions = [model_positions[model] + (dataset_idx - 1.5) * offset for model in dataset_data.Model_Type]
@@ -1159,7 +1171,12 @@ function create_r2_comparison_barchart(r2_df)
     ax = Axis(fig[1, 1],
         xlabel="Model Type",
         ylabel="R² Value",
-        title="R² Comparison Across Models and Datasets")
+        title="R² Comparison Across Models and Datasets",
+        xlabelsize=22,
+        ylabelsize=22,
+        titlesize=24,
+        xticklabelsize=20,
+        yticklabelsize=20)
     
     # Define colors for datasets and train/test
     dataset_colors = Dict(
