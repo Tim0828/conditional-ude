@@ -1,8 +1,8 @@
 # Model fit to the train data and evaluation on the test data
-train_model = false
-figures = false
+train_model = true
+figures = true
 folder = "MLE"
-dataset = "ohashi_low"
+dataset = "ohashi_025"
 extension = "png"
 pt = 4/3
 
@@ -41,7 +41,7 @@ models_train = [
     body_weights, bmis, glucose_data, cpeptide_data, disposition_indices, first_phase, second_phase, isi, total) = load_data()
 subject_numbers_training = train_data.training_indices
 metrics_train = [first_phase[subject_numbers_training], second_phase[subject_numbers_training], ages[subject_numbers_training], isi[subject_numbers_training], body_weights[subject_numbers_training], bmis[subject_numbers_training]]
-indices_train, indices_validation = optimize_split(types[subject_numbers_training], metrics_train, 0.7, rng)
+indices_train, indices_validation = optimize_split(types[subject_numbers_training], metrics_train, 0.7, rng, n_attempts=5000)
 
 # train the models or load the trained model neural network parameters
 if train_model

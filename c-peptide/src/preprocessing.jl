@@ -33,7 +33,7 @@ function total_kl_divergence(train_indices, test_indices, metrics)
 end
 
 # Function to optimize train/test split to minimize KL divergence
-function optimize_split(types, metrics, f_train, rng; n_attempts=5000)
+function optimize_split(types, metrics, f_train, rng; n_attempts=5000, target="min")
     """
     Optimize train/test split to minimize KL divergence between train and test distributions.
     
@@ -47,24 +47,42 @@ function optimize_split(types, metrics, f_train, rng; n_attempts=5000)
     Returns:
         Tuple of (train_indices, test_indices) with minimum KL divergence
     """
-    best_kl = Inf
+    
     best_train_indices = Int[]
     best_test_indices = Int[]
     println("Optimizing split...")
     # Try multiple random splits to find the one with minimum KL divergence
-    for attempt in 1:n_attempts
-        temp_train_indices, temp_test_indices = stratified_split(rng, types, f_train)
+    if target == "min"
+        best_kl = Inf
+        for attempt in 1:n_attempts
+            temp_train_indices, temp_test_indices = stratified_split(rng, types, f_train)
 
-        # Calculate total KL divergence for this split
-        kl_total = total_kl_divergence(temp_train_indices, temp_test_indices, metrics)
+            # Calculate total KL divergence for this split
+            kl_total = total_kl_divergence(temp_train_indices, temp_test_indices, metrics)
 
-        if kl_total < best_kl
-            best_kl = kl_total
-            best_train_indices = temp_train_indices
-            best_test_indices = temp_test_indices
+            if kl_total < best_kl
+                best_kl = kl_total
+                best_train_indices = temp_train_indices
+                best_test_indices = temp_test_indices
+            end
         end
-    end
+    elseif target == "max"
+        best_kl = -Inf
+        for attempt in 1:n_attempts
+            temp_train_indices, temp_test_indices = stratified_split(rng, types, f_train)
 
+            # Calculate total KL divergence for this split
+            kl_total = total_kl_divergence(temp_train_indices, temp_test_indices, metrics)
+
+            if kl_total > best_kl
+                best_kl = kl_total
+                best_train_indices = temp_train_indices
+                best_test_indices = temp_test_indices
+            end
+        end
+    else
+        error("Invalid target: $target. Use 'min' or 'max'.")
+    end
     println("Best KL divergence: $best_kl")
     return best_train_indices, best_test_indices
 end

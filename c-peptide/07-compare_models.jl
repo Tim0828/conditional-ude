@@ -435,6 +435,80 @@ function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, te
     return fig
 end
 
+# Function to create violin plot comparing all methods and datasets together
+function create_all_methods_datasets_violin(models)
+    fig = Figure(size=(1200, 800))
+    ax = Axis(fig[1, 1],
+        xlabel="Model Type",
+        ylabel="Mean Squared Error",
+        title="MSE Comparison Across All Methods and Datasets")
+
+    ylims!(ax, 0, nothing)  # Set y-axis limits
+    
+    # Define colors for each dataset
+    dataset_colors = Dict(
+        "ohashi_rich" => Makie.wong_colors()[1],
+        "ohashi_low" => Makie.wong_colors()[2]
+    )
+
+    method_order = ["MLE", "partial_pooling", "no_pooling"]
+    dataset_order = ["ohashi_rich", "ohashi_low"]
+    jitter_width = 0.08
+    violin_width = 0.2
+
+    # Plot for each method and dataset combination
+    for (method_idx, method) in enumerate(method_order)
+        for (dataset_idx, dataset) in enumerate(dataset_order)
+            # Get MSE data for this method and dataset
+            mse_values = models["$(dataset)_$(method)"]["mse"]
+
+            if !isempty(mse_values)
+                # Calculate x-position
+                x_center = method_idx
+                x_offset = (dataset_idx - 1.5) * 0.3  # -0.15, 0.15 for two datasets
+                x_pos = x_center + x_offset
+
+                # Plot violin
+                violin!(ax, fill(x_pos, length(mse_values)), mse_values,
+                    color=(dataset_colors[dataset], 0.6),
+                    width=violin_width,
+                    strokewidth=1, side=:right)
+
+                # Add jittered scatter points
+                scatter_offset = -0.05
+                jitter = scatter_offset .+ (rand(length(mse_values)) .- 0.5) .* jitter_width
+                scatter!(ax, fill(x_pos, length(mse_values)) .+ jitter, mse_values,
+                    color=(dataset_colors[dataset], 0.8),
+                    markersize=3)
+
+                # Add mean marker
+                mean_val = mean(mse_values)
+                scatter!(ax, [x_pos], [mean_val],
+                    color=:black,
+                    markersize=8,
+                    marker=:diamond)
+            end
+        end
+    end
+
+    # Set x-axis ticks and labels
+    ax.xticks = (1:length(method_order), replace.(method_order, "_" => " ") .|> titlecase)
+
+    # Create legend
+    legend_elements = [
+        [PolyElement(color=(dataset_colors[dataset], 0.6)) for dataset in dataset_order]...,
+        MarkerElement(color=:black, marker=:diamond, markersize=8)
+    ]
+    legend_labels = ["Ohashi (Full)", "Ohashi (Reduced)", "Mean"]
+    Legend(fig[1, 2], legend_elements, legend_labels, "Dataset")
+
+    return fig
+end
+
+# Create and save the combined violin plot
+combined_violin_fig = create_all_methods_datasets_violin(models)
+save("figures/combined_mse_violin_all_methods_datasets.png", combined_violin_fig)
+println("Combined violin plot (all methods and datasets) saved: figures/combined_mse_violin_all_methods_datasets.png")
 
 # 1. Compare model types within the same dataset - GENERAL
 println("\n" * "#"^80)

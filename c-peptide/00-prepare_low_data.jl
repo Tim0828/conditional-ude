@@ -8,7 +8,7 @@ include("src/c_peptide_ude_models.jl")
 include("src/preprocessing.jl")
 
 f_train = 0.70
-dataset = "ohashi_low"
+dataset = "ohashi_025"
 
 # read the ohashi data
 (subject_numbers, subject_info_filtered, types, timepoints, glucose_indices, cpeptide_indices, ages,
@@ -17,7 +17,7 @@ dataset = "ohashi_low"
 ogtt_figure(glucose_data, cpeptide_data, types, timepoints, dataset)
 metrics = [first_phase, second_phase, ages, isi, body_weights, bmis]
 
-reduced_indices, _ = optimize_split(types, metrics, 0.5, rng, n_attempts=5000)
+reduced_indices, _ = optimize_split(types, metrics, 0.25, rng, n_attempts=5000)
 
 # Apply reduction to all data
 subject_numbers = subject_numbers[reduced_indices]
