@@ -40,20 +40,21 @@ function cude_vi(CONFIG)
         file["train"], file["test"]
     end
 
-    (subject_numbers, subject_info_filtered, types, timepoints, glucose_indices, cpeptide_indices, ages,
-        body_weights, bmis, glucose_data, cpeptide_data, disposition_indices, first_phase, second_phase, isi, total) = load_data()
+    (_, _, types, timepoints, _, _, ages,
+        body_weights, bmis, _, cpeptide_data, _, first_phase, second_phase, isi, _) = load_data()
 
     # define the neural network
     chain = neural_network_model(2, 6)
-    t2dm = train_data.types .== "T2DM"
+    t2dm_train = train_data.types .== "T2DM"
 
     # create the models
     models_train = [
-        CPeptideCUDEModel(train_data.glucose[i, :], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i, :], t2dm[i]) for i in axes(train_data.glucose, 1)
+        CPeptideCUDEModel(train_data.glucose[i, :], train_data.timepoints, train_data.ages[i], chain, train_data.cpeptide[i, :], t2dm_train[i]) for i in axes(train_data.glucose, 1)
     ]
 
+    t2dm_test = test_data.types .== "T2DM"
     models_test = [
-        CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) for i in axes(test_data.glucose, 1)
+        CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm_test[i]) for i in axes(test_data.glucose, 1)
     ]
 
     # train on 70%, select on 30%
@@ -78,22 +79,18 @@ function cude_vi(CONFIG)
             n_samples = CONFIG.n_samples
             n_best = CONFIG.n_best
             println("Using full training mode")
-        end
-
-        # Get initial parameters
+        end        # Get initial parameters
         println("Getting initial parameters...")
         result = get_initial_parameters(train_data, indices_train, models_train, n_samples, n_best)
-        initial_nn_sets = result.nn_params    # Train the model using unified function
+        initial_nn_sets = result.nn_params
+        
+        # Train the model using unified function
         println("Training initial ADVI models...")
-        nn_params, betas_training, betas_test, advi_model, advi_model_test, training_results = train_ADVI_models_unified(
+        nn_params, betas_training, betas_test, advi_model, advi_model_test, _ = train_ADVI_models_unified(
             CONFIG.pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train,
-            test_data, models_test, advi_iterations, advi_iterations, dataset)
+            test_data, models_test, advi_iterations, advi_test_iterations, dataset)
 
-        println("Training test betas with fixed neural network parameters...")
-        turing_model_test = get_turing_models(
-            CONFIG.pooling_type, test_data.cpeptide, test_data.timepoints,
-            models_test, nn_params, true)
-        betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+        # Note: betas_test and advi_model_test are already trained by train_ADVI_models_unified
 
         # Save the model (only if not quick training)
         if !CONFIG.quick_train
@@ -133,14 +130,15 @@ function cude_vi(CONFIG)
 
     ######### FIGURES ########
     if CONFIG.figures
-        println("\nGenerating figures...")
-        # Create models for plotting
+        println("\nGenerating figures...")        # Create models for plotting
+        priors_train = estimate_priors(train_data, models_train[indices_train], nn_params)
         turing_model_train = get_turing_models(
             CONFIG.pooling_type, train_data.cpeptide[indices_train, :], train_data.timepoints,
-            models_train[indices_train], nn_params, false)
+            models_train[indices_train], nn_params, false, priors_train)
+        priors_test = estimate_priors(test_data, models_test, nn_params)
         turing_model_test = get_turing_models(
             CONFIG.pooling_type, test_data.cpeptide, test_data.timepoints,
-            models_test, nn_params, true)
+            models_test, nn_params, true, priors_test)
 
         # Ensure output directories exist
         if !isdir("figures/$folder")
@@ -187,10 +185,8 @@ function cude_vi(CONFIG)
         # Calculate R² for the training set
         r2_train = calculate_r_squared(train_data.cpeptide[indices_train, :], betas_training, nn_params, models_train[indices_train], train_data.timepoints)
         println("Train R² for $(CONFIG.pooling_type) on $(CONFIG.dataset): ", round(mean(r2_train), digits=4))
-        
-        # Save R² values
-        # Save R² values
-        jldopen("data/$(CONFIG.pooling_type)/r2_$dataset.jld2", "w") do file
+          # Save R² values
+        jldopen("data/$folder/r2_$dataset.jld2", "w") do file
             file["train"] = r2_train
             file["test"] = r2_test
         end
@@ -237,9 +233,9 @@ for pooling_type in pooling_types
             dataset=dataset,
 
             # Training settings
-            train_model=false,
+            train_model=true,
 
-            quick_train=false,  # Set to true for faster testing
+            quick_train=true,  # Set to true for faster testing
 
 
             # Analysis settings
@@ -254,7 +250,7 @@ for pooling_type in pooling_types
             # Quick training parameters (used if quick_train)
             quick_advi_iterations=1,
             quick_advi_test_iterations=1,
-            quick_n_samples=10_000,
+            quick_n_samples=1_000,
             quick_n_best=1
         )
         cude_vi(CONFIG)
