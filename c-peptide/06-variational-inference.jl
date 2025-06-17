@@ -223,7 +223,7 @@ end
 
 pooling_types = ["partial_pooling", "no_pooling"]
 # datasets 
-datasets = ["ohashi_rich", "ohashi_low"]
+datasets = ["ohashi_low","ohashi_rich"]
 
 for pooling_type in pooling_types
     for dataset in datasets

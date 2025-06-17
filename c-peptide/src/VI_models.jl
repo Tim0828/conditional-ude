@@ -239,37 +239,37 @@ function save_model(folder, dataset, advi_model, advi_model_test, nn_params, bet
 end
 
 function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
-    training_results = DataFrame(nn_params=Vector[], prior=Vector[], betas=Vector[], loss=Float64[], model_index=Int[])
+    training_results = DataFrame(nn_params=Vector[], betas=Vector[], loss=Float64[], model_index=Int[])
     advi_models = []
 
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
-    for (model_index, initial_nn) in enumerate(initial_nn_sets)
-        # estimate priors
-        local priors = estimate_priors(train_data, models_train, initial_nn)
+    for (model_index, initial_nn) in enumerate(initial_nn_sets)        # estimate priors
+        local priors_train = estimate_priors(train_data, models_train, initial_nn, indices_train)
         # initiate turing model
         local turing_model_train = partial_pooled(
             train_data.cpeptide[indices_train, :],
             train_data.timepoints,
             models_train[indices_train],
             initial_nn,
-            priors
+            priors_train
         )
 
         # train conditional model
         println("Training on training data...")
         local nn_params, betas_train, advi_model = train_ADVI(turing_model_train, advi_iterations)
-
         # Evaluate on validation data
         println("Evaluating on validation data...")
         models_validation = models_train[indices_validation]
-        # train betas on validation data
-        local turing_model_validation = partial_pooled(
+
+        priors_val = estimate_priors(train_data, models_train, nn_params, indices_validation)
+        # train betas on validation data with fixed nn-params
+        local turing_model_validation = partial_pooled_test(
             train_data.cpeptide[indices_validation, :],
             train_data.timepoints,
             models_validation,
             nn_params,
-            priors
+            priors_val
         )
         # train the conditional parameters for the validation data
         local betas_validation, _ = train_ADVI(turing_model_validation, advi_iterations, 10_000, 3, true)
@@ -287,7 +287,7 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
         println("Validation set MSE: mean=$mean_objective, std=$std_objective")
 
         # Store the results (without test betas for now)
-        push!(training_results, (nn_params=copy(nn_params), prior=copy(priors), betas=copy(betas_train), loss=mean_objective, model_index=model_index))
+        push!(training_results, (nn_params=copy(nn_params), betas=copy(betas_train), loss=mean_objective, model_index=model_index))
         push!(advi_models, advi_model)
         next!(prog)
     end
@@ -298,12 +298,13 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
     nn_params = best_result.nn_params
     betas = best_result.betas
     advi_model = advi_models[best_result.model_index]
-    prior = best_result.prior
     println("Best loss: ", best_result.loss)
 
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
-    local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params, prior)
+    prior_test = estimate_priors(test_data, models_test, nn_params)
+    # initiate turing model for the test data
+    local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params, prior_test)
     # train the conditional parameters for the test data
     local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
 
@@ -321,14 +322,12 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
     for (j, initial_nn) in enumerate(initial_nn_sets)
         # estimate priors
-        local priors = estimate_priors(train_data, models_train, initial_nn)
         # initiate turing model
         local turing_model_train = no_pooling(
             train_data.cpeptide[indices_train, :],
             train_data.timepoints,
             models_train[indices_train],
-            initial_nn,
-            priors
+            initial_nn
         )
 
         # train conditional model
@@ -386,39 +385,73 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
 end
 
 
-function estimate_priors(train_data, models, nn_params)
+function estimate_priors(train_data, models, nn_params, indices=nothing)
     # Initialize storage for parameter estimates
     beta_estimates = Float64[]
 
-    prog = Progress(length(models); dt=0.01, desc="Estimating priors... ", showspeed=true, color=:firebrick)
-
-    for (idx, _) in enumerate(models)
-
-        # Define proper scalar loss function - this was missing!
-        function simple_loss(β)
-            # Important: β is a scalar here
-            prediction = ADVI_predict(β[1], nn_params, models[idx].problem, train_data.timepoints)
-            return calculate_mse(train_data.cpeptide[idx, :], prediction)
-        end
-
-        # Simple grid search to find good starting point
-        best_beta = 0.0 # default
-        best_loss = Inf
-
-        for test_beta in -2:0.01:2.0
-            try
-                loss = simple_loss([test_beta])
-                if loss < best_loss
-                    best_loss = loss
-                    best_beta = test_beta
-                end
-            catch
-                continue
+    # If indices are provided, use only those models and data
+    if indices !== nothing
+        models_subset = models[indices]
+        prog = Progress(length(models_subset); dt=0.01, desc="Estimating priors... ", showspeed=true, color=:firebrick)
+        
+        for (i, idx) in enumerate(indices)
+            # Define proper scalar loss function
+            function simple_loss(β)
+                # Important: β is a scalar here
+                prediction = ADVI_predict(β[1], nn_params, models_subset[i].problem, train_data.timepoints)
+                return calculate_mse(train_data.cpeptide[idx, :], prediction)
             end
-        end
 
-        push!(beta_estimates, best_beta)
-        next!(prog)
+            # Simple grid search to find good starting point
+            best_beta = 0.0 # default
+            best_loss = Inf
+
+            for test_beta in -2:0.01:2.0
+                try
+                    loss = simple_loss([test_beta])
+                    if loss < best_loss
+                        best_loss = loss
+                        best_beta = test_beta
+                    end
+                catch
+                    continue
+                end
+            end
+
+            push!(beta_estimates, best_beta)
+            next!(prog)
+        end
+    else
+        # Use all models and data
+        prog = Progress(length(models); dt=0.01, desc="Estimating priors... ", showspeed=true, color=:firebrick)
+
+        for (idx, _) in enumerate(models)
+            # Define proper scalar loss function
+            function simple_loss(β)
+                # Important: β is a scalar here
+                prediction = ADVI_predict(β[1], nn_params, models[idx].problem, train_data.timepoints)
+                return calculate_mse(train_data.cpeptide[idx, :], prediction)
+            end
+
+            # Simple grid search to find good starting point
+            best_beta = 0.0 # default
+            best_loss = Inf
+
+            for test_beta in -2:0.01:2.0
+                try
+                    loss = simple_loss([test_beta])
+                    if loss < best_loss
+                        best_loss = loss
+                        best_beta = test_beta
+                    end
+                catch
+                    continue
+                end
+            end
+
+            push!(beta_estimates, best_beta)
+            next!(prog)
+        end
     end
 
     alpha =3.0
@@ -433,7 +466,7 @@ function estimate_priors(train_data, models, nn_params)
         println("Estimated priors: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
         if σ_beta_estimate < 0.5
             σ_beta_estimate = 0.5 # Ensure σ_beta is not too small
-            println("Warning: σ_beta estimate too small, setting to 0.1")
+            println("Warning: σ_beta estimate too small, setting to 0.5")
         end
         beta = 2 * σ_beta_estimate 
     end
