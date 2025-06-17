@@ -58,6 +58,32 @@ function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcm
     return betas, advi_model
 end
 
+function train_ADVI_with_distributions(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=3, fixed_nn=false)
+    """
+    Alternative train_ADVI function that maintains posterior distributions for parameters
+    
+    Returns:
+        If fixed_nn=false: (nn_params_mean, nn_params_samples, betas_mean, betas_samples, advi_model)
+        If fixed_nn=true: (betas_mean, betas_samples, advi_model)
+    """
+    advi = ADVI(mcmc_samples, advi_iterations)
+    advi_model = vi(turing_model, advi)
+    _, sym2range = bijector(turing_model, Val(true))
+    z = rand(advi_model, posterior_samples)
+    
+    # sample beta parameters
+    sampled_betas = z[union(sym2range[:β]...), :] # sampled parameters
+    betas_mean = mean(sampled_betas, dims=2)[:]
+    
+    if fixed_nn == false
+        sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
+        nn_params_mean = mean(sampled_nn_params, dims=2)[:]
+        return nn_params_mean, sampled_nn_params, betas_mean, sampled_betas, advi_model
+    end
+    
+    return betas_mean, sampled_betas, advi_model
+end
+
 ##### model def. ######
 
 # Optimizable function: neural network parameters, contains
@@ -69,6 +95,7 @@ function ADVI_predict(β, neural_network_parameters, problem, timepoints)
 
     if length(solution) < length(timepoints)
         # if the solution is shorter than the timepoints, we need to pad it
+        println("Warning: Solution length is shorter than timepoints. Padding with missing values.")
         solution = vcat(solution, fill(missing, length(timepoints) - length(solution)))
     end
 
@@ -79,7 +106,7 @@ end
     # Use estimated or default priors
     if isnothing(priors)
         μ_beta ~ Normal(0.0, 3.0)  # Default fallback
-        σ_beta ~ InverseGamma(3,2)
+        σ_beta ~ InverseGamma(3, 2)
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
         σ_beta ~ priors.σ_beta_prior  # Data-driven prior
@@ -93,7 +120,7 @@ end
     end
 
     # Distribution for the neural network weights
-    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
+    nn ~ MvNormal(neural_network_parameters, 1.0 * I)
 
 
     # empircal bayes for the model error
@@ -155,11 +182,11 @@ end
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
         # Each β gets its own independent prior
-        β[i] ~ Normal(0.0, 5.0)  
+        β[i] ~ Normal(0.0, 5.0)
     end
 
     # Neural network parameters
-    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
+    nn ~ MvNormal(neural_network_parameters, 1.0 * I)
 
     # empircal bayes for the model error
     # Estimate noise variance from data (assume 10% of data variance is noise)
@@ -290,15 +317,29 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
         push!(training_results, (nn_params=copy(nn_params), betas=copy(betas_train), loss=mean_objective, model_index=model_index))
         push!(advi_models, advi_model)
         next!(prog)
-    end
-
-    # Sort the results by loss and take the best one
+    end    # Sort the results by loss and take the best one
     sort!(training_results, :loss)
     best_result = training_results[1, :]
     nn_params = best_result.nn_params
     betas = best_result.betas
     advi_model = advi_models[best_result.model_index]
     println("Best loss: ", best_result.loss)
+
+    # FIX: Retrain training betas with final nn_params for fair evaluation
+    println("Retraining training betas with final nn_params for fair evaluation...")
+    priors_train_final = estimate_priors(train_data, models_train, nn_params, indices_train)
+    turing_model_train_final = partial_pooled_test(
+        train_data.cpeptide[indices_train, :],
+        train_data.timepoints,
+        models_train[indices_train],
+        nn_params,  # Use the FINAL selected nn_params
+        priors_train_final
+    )
+    # Retrain betas that are compatible with the selected nn_params
+    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 3, true)
+    # Replace the old betas with corrected ones
+    betas = betas_corrected
+    println("Training betas corrected for fair train vs test comparison")
 
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
@@ -362,15 +403,27 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
         push!(training_results, (nn_params=copy(nn_params), betas=copy(betas), loss=mean_objective, j=j))
         push!(advi_models, advi_model)
         next!(prog)
-    end
-
-    # Sort the results by loss and take the best one
+    end    # Sort the results by loss and take the best one
     sort!(training_results, :loss)
     best_result = training_results[1, :]
     nn_params = best_result.nn_params
     betas = best_result.betas
     advi_model = advi_models[best_result.j]
-    
+
+    # FIX: Retrain training betas with final nn_params for fair evaluation
+    println("Retraining training betas with final nn_params for fair evaluation...")
+    turing_model_train_final = no_pooling_test(
+        train_data.cpeptide[indices_train, :],
+        train_data.timepoints,
+        models_train[indices_train],
+        nn_params  # Use the FINAL selected nn_params
+    )
+    # Retrain betas that are compatible with the selected nn_params  
+    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 3, true)
+    # Replace the old betas with corrected ones
+    betas = betas_corrected
+    println("Training betas corrected for fair train vs test comparison")
+
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
     local turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
@@ -393,7 +446,7 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
     if indices !== nothing
         models_subset = models[indices]
         prog = Progress(length(models_subset); dt=0.01, desc="Estimating priors... ", showspeed=true, color=:firebrick)
-        
+
         for (i, idx) in enumerate(indices)
             # Define proper scalar loss function
             function simple_loss(β)
@@ -454,7 +507,7 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
         end
     end
 
-    alpha =3.0
+    alpha = 3.0
     # Calculate statistics for priors
     if isempty(beta_estimates)
         μ_beta_estimate = 0.0
@@ -462,21 +515,21 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
         println("Warning: No valid beta estimates. Using defaults: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
     else
         μ_beta_estimate = mean(beta_estimates)
-        σ_beta_estimate = std(beta_estimates) 
+        σ_beta_estimate = std(beta_estimates)
         println("Estimated priors: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
         if σ_beta_estimate < 0.5
             σ_beta_estimate = 0.5 # Ensure σ_beta is not too small
             println("Warning: σ_beta estimate too small, setting to 0.5")
         end
-        beta = 2 * σ_beta_estimate 
+        beta = 2 * σ_beta_estimate
     end
 
     # Return suggested priors
     return (
-        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate), 
-        σ_beta_prior=InverseGamma(alpha, beta), 
+        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate),
+        σ_beta_prior=InverseGamma(alpha, beta),
         μ_beta_estimate=μ_beta_estimate
-        )
+    )
 end
 
 function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
@@ -529,7 +582,7 @@ function get_turing_models(pooling_type, data, timepoints, models, neural_networ
     Returns:
         Turing model
     """
-    
+
     if pooling_type == "partial_pooling"
         if test_mode
             return partial_pooled_test(data, timepoints, models, neural_network_parameters)

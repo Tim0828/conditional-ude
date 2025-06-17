@@ -1286,3 +1286,152 @@ println("\n" * "="^80)
 println("MODEL COMPARISON ANALYSIS COMPLETE")
 println("="^80)
 
+println("\n" * "="^80)
+println("GENERATING COMBINED MODEL FIT FIGURE")
+println("="^80)
+
+
+# Ensure we have exactly 3 subjects (if some types are missing, fill with available subjects)
+while length(subjects_to_plot) < 3 && length(subjects_to_plot) < length(test_data.types)
+    # Find next available subject that's not already selected
+    for i in 1:length(test_data.types)
+        if !(i in subjects_to_plot)
+            push!(subjects_to_plot, i)
+            break
+        end
+    end
+end
+
+# Limit to 3 subjects for the plot
+subjects_to_plot = subjects_to_plot[1:min(3, length(subjects_to_plot))]
+
+println("Selected subjects for combined model fit plot: $subjects_to_plot")
+println("Subject types: $(test_data.types[subjects_to_plot])")
+
+
+
+# Function to create a combined model fit figure showing all three model types
+function create_combined_model_fit_figure(test_data, models, dataset="ohashi_rich")
+    fig = Figure(size=(1200, 400))
+    if dataset == "ohashi_rich"
+        dataset_name = "Ohashi (Full)"
+        subjects_to_plot = [13, 19, 31]
+    else
+        dataset_name = "Ohashi (Reduced)"
+        subjects_to_plot = [1, 9, 15]
+    end
+    # Create axes for the three subjects
+    axs = [Axis(fig[1, i], xlabel="Time [min]", ylabel="C-peptide [nmol/L]",
+        title="Subject $(subjects_to_plot[i]) ($(test_data.types[subjects_to_plot[i]]))")
+           for i in eachindex(subjects_to_plot)]
+    
+
+    # Add a supertitle above all subplots
+    Label(fig[0, 1:length(subjects_to_plot)], "C-peptide Model Fit Comparison Across Methods - $dataset_name",
+        fontsize=16, font=:bold, padding=(0, 0, 20, 0))
+
+    # Define model colors and labels
+    model_colors = Dict(
+        "MLE" => Makie.wong_colors()[1],
+        "partial_pooling" => Makie.wong_colors()[2], 
+        "no_pooling" => Makie.wong_colors()[3]
+    )
+    
+    model_labels = Dict(
+        "MLE" => "MLE",
+        "partial_pooling" => "Partial Pooling",
+        "no_pooling" => "No Pooling"
+    )
+
+    # Use the rich dataset for the plot (has more data points)
+    
+    
+    # Plot observed data first
+    for (i, subject_idx) in enumerate(subjects_to_plot)
+        scatter!(axs[i], test_data.timepoints, test_data.cpeptide[subject_idx, :], 
+                color=:black, markersize=6, label="Observed Data")
+    end
+    
+    # Plot model predictions for each method
+    try
+        # Create neural network model structure
+        chain = neural_network_model(2, 6)
+        
+        for model_type in ["MLE", "partial_pooling", "no_pooling"]
+            model_key = "$(dataset)_$(model_type)"
+            
+            if haskey(models, model_key)
+                model_data = models[model_key]
+                
+                # Get neural network parameters and betas
+                nn_params = model_data["nn"]
+                betas_test = model_data["beta_test"]
+                
+                # Create models for test subjects
+                t2dm = test_data.types .== "T2DM"
+                models_test = [
+                    CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, 
+                                    test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) 
+                    for i in axes(test_data.glucose, 1)
+                ]
+                
+                # Generate predictions for selected subjects
+                for (i, subject_idx) in enumerate(subjects_to_plot)
+                    try
+                        # Calculate model solution
+                        sol = Array(solve(models_test[subject_idx].problem,
+                            p=ComponentArray(ode=[betas_test[subject_idx]], neural=nn_params),
+                            saveat=test_data.timepoints, save_idxs=1))
+
+                        # Plot model fit
+                        lines!(axs[i], test_data.timepoints, sol, 
+                              color=model_colors[model_type], linewidth=2.5, 
+                              label=model_labels[model_type])
+                    catch e
+                        println("Warning: Could not generate prediction for subject $subject_idx with $model_type: $e")
+                    end
+                end
+            else
+                println("Warning: Model $model_key not found in loaded models")
+            end
+        end
+    catch e
+        println("Error generating model predictions: $e")
+        # Fall back to simple plot without predictions
+        for (i, subject_idx) in enumerate(subjects_to_plot)
+            axs[i].title = "Subject $(subjects_to_plot[i]) ($(test_data.types[subjects_to_plot[i]])) - Data Only"
+        end
+    end
+    
+    # Add legend
+    Legend(fig[1, length(subjects_to_plot)+1], axs[1], "Method", framevisible=false)
+    
+    # Save the figure
+    save("figures/combined_model_fit$dataset.png", fig, px_per_unit=4)
+    
+    return fig
+end
+
+
+# Define subjects to plot - select representative subjects from different types
+# Select one subject from each type (NGT, IGT, T2DM) for visualization
+
+
+# Find representative subjects from each type in test data
+for subject_type in ["NGT", "IGT", "T2DM"]
+    type_indices = findall(x -> x == subject_type, test_data.types)
+    if !isempty(type_indices)
+        # Select the first subject of this type
+        push!(subjects_to_plot, type_indices[1])
+    end
+end
+
+# Generate the combined model fit figure using our improved function
+create_combined_model_fit_figure(test_data, models, "ohashi_rich")
+
+println("Combined model fit figure saved: figures/combined_model_fit_full.png")
+
+create_combined_model_fit_figure(test_data, models, "ohashi_low")
+
+println("Combined model fit figure saved: figures/combined_model_fit_reduced.png")
+
