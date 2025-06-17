@@ -89,11 +89,11 @@ function cude_vi(CONFIG)
             CONFIG.pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train,
             test_data, models_test, advi_iterations, advi_iterations, dataset)
 
-        println("Training test betas with fixed neural network parameters...")
-        turing_model_test = get_turing_models(
-            CONFIG.pooling_type, test_data.cpeptide, test_data.timepoints,
-            models_test, nn_params, true)
-        betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+        # println("Training test betas with fixed neural network parameters...")
+        # turing_model_test = get_turing_models(
+        #     CONFIG.pooling_type, test_data.cpeptide, test_data.timepoints,
+        #     models_test, nn_params, true)
+        # betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
 
         # Save the model (only if not quick training)
         if !CONFIG.quick_train
@@ -137,11 +137,11 @@ function cude_vi(CONFIG)
         # Create models for plotting
         turing_model_train = get_turing_models(
             CONFIG.pooling_type, train_data.cpeptide[indices_train, :], train_data.timepoints,
-            models_train[indices_train], nn_params, false)
+            models_train[indices_train], nn_params, true)
         turing_model_test = get_turing_models(
             CONFIG.pooling_type, test_data.cpeptide, test_data.timepoints,
             models_test, nn_params, true)
-
+        
         # Ensure output directories exist
         if !isdir("figures/$folder")
             mkpath("figures/$folder")
@@ -225,7 +225,7 @@ function cude_vi(CONFIG)
     println("="^60)
 end
 
-pooling_types = ["partial_pooling", "no_pooling"]
+pooling_types = ["partial_pooling"]
 # datasets 
 datasets = ["ohashi_rich", "ohashi_low"]
 
@@ -237,7 +237,7 @@ for pooling_type in pooling_types
             dataset=dataset,
 
             # Training settings
-            train_model=false,
+            train_model=true,
 
             quick_train=false,  # Set to true for faster testing
 
@@ -246,15 +246,15 @@ for pooling_type in pooling_types
             figures=true,
 
             # Training parameters (used if not quick_train)
-            advi_iterations=2000,
+            advi_iterations=3000,
             advi_test_iterations=2000,
             n_samples=25_000,
-            n_best=3,
+            n_best=2,
 
             # Quick training parameters (used if quick_train)
             quick_advi_iterations=1,
             quick_advi_test_iterations=1,
-            quick_n_samples=10_000,
+            quick_n_samples=1000,
             quick_n_best=1
         )
         cude_vi(CONFIG)

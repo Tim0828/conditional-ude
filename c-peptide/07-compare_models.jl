@@ -281,7 +281,7 @@ end
 
 # Function to create violin plot comparing methods within a dataset
 function create_methods_comparison_violin(mse_mle, mse_partial, mse_no_pool, test_data, title_suffix="")
-    fig = Figure(size=(800, 600))
+    fig = Figure(size=(1200, 800))
     ax = Axis(fig[1, 1],
         xlabel="Patient Type",
         ylabel="Mean Squared Error",
@@ -362,7 +362,7 @@ end
 
 # Function to create violin plot comparing datasets for a single model
 function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, test_data_low, model_type)
-    fig = Figure(size=(700, 400))
+    fig = Figure(size=(1200, 800))
     ax = Axis(fig[1, 1],
         xlabel="Patient Type",
         ylabel="Mean Squared Error",

@@ -4,6 +4,7 @@ function get_initial_parameters(train_data, indices_train, models_train, n_sampl
     println("Evaluating $n_samples initial parameter sets...")
 
     prog = Progress(n_samples; dt=0.01, desc="Evaluating initial parameter samples... ", showspeed=true, color=:firebrick)
+
     for i = 1:n_samples
 
         j = indices_train[1]
@@ -11,8 +12,10 @@ function get_initial_parameters(train_data, indices_train, models_train, n_sampl
         # initiate nn-params
         nn_params = init_params(models_train[j].chain)
         betas = Vector{Float64}(undef, length(training_models))
-        # Sample betas from a normal distribution
-        μ_beta_dist = Normal(-2.0, 10.0)
+        # Sample betas from a multimodal normal distribution
+        components = [Normal(-5, 5), Normal(-0.5, 5), Normal(0, 5)]
+        weights = [0.333, 0.333, 0.334]  # Ensure weights sum to 1
+        μ_beta_dist = MixtureModel(components, weights)
         for i in eachindex(training_models)
             betas[i] = rand(μ_beta_dist)
         end
@@ -42,7 +45,7 @@ function get_initial_parameters(train_data, indices_train, models_train, n_sampl
     return best_results
 end
 
-function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=3, fixed_nn=false)
+function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=4, fixed_nn=false)
     advi = ADVI(mcmc_samples, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
@@ -75,29 +78,125 @@ function ADVI_predict(β, neural_network_parameters, problem, timepoints)
     return solution
 end
 
+@model function mixture_partial_pooled(data, timepoints, models, neural_network_parameters, n_components=2, ::Type{T}=Float64) where T
+    # Mixture model weights
+    π ~ Dirichlet(ones(n_components))
+
+    # Component parameters
+    μ_components = Vector{T}(undef, n_components)
+    σ_components = Vector{T}(undef, n_components)
+
+    for k in 1:n_components
+        μ_components[k] ~ Normal(-3.0 + (k - 1) * 3.0, 2.0)
+        σ_components[k] ~ InverseGamma(2, 1)
+    end
+
+    # Individual parameters
+    β = Vector{T}(undef, length(models))
+    cluster_probs = Vector{Vector{T}}(undef, length(models))
+
+    for i in eachindex(models)
+        # Explicit cluster assignment probabilities
+        cluster_probs[i] ~ Dirichlet(π)
+
+        # Beta is a weighted mixture of cluster means
+        # This preserves gradient information while allowing cluster attribution
+        β[i] ~ Normal(dot(μ_components, cluster_probs[i]),
+            sqrt(sum(cluster_probs[i] .* σ_components .^ 2)))
+    end
+
+    # Neural network parameters
+    nn_dim = length(neural_network_parameters)
+    nn ~ MvNormal(zeros(nn_dim), 1.0 * I)
+
+    # Noise parameter
+    data_std = std(vec(data))
+    σ ~ InverseGamma(2, data_std / 10)
+
+    # Likelihood
+    for i in eachindex(models)
+        prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
+        data[i, :] ~ MvNormal(prediction, σ * I)
+    end
+
+    return nothing
+end
+
+# Test version with fixed neural network parameters
+@model function mixture_partial_pooled_test(data, timepoints, models, neural_network_parameters, n_components=2, ::Type{T}=Float64) where T
+    # Mixture model weights
+    π ~ Dirichlet(ones(n_components))
+
+    # Component parameters
+    μ_components = Vector{T}(undef, n_components)
+    σ_components = Vector{T}(undef, n_components)
+
+    for k in 1:n_components
+        μ_components[k] ~ Normal(-3.0 + (k - 1) * 3.0, 2.0)
+        σ_components[k] ~ InverseGamma(2, 1)
+    end
+
+    # Individual parameters
+    β = Vector{T}(undef, length(models))
+    cluster_probs = Vector{Vector{T}}(undef, length(models))
+
+    for i in eachindex(models)
+        # Explicit cluster assignment probabilities
+        cluster_probs[i] ~ Dirichlet(π)
+
+        # Beta is a weighted mixture of cluster means
+        # This preserves gradient information while allowing cluster attribution
+        β[i] ~ Normal(dot(μ_components, cluster_probs[i]),
+            sqrt(sum(cluster_probs[i] .* σ_components .^ 2)))
+    end
+
+    # Neural network parameters
+    nn = neural_network_parameters  # Fixed parameters
+
+    # Noise parameter
+    data_std = std(vec(data))
+    σ ~ InverseGamma(2, data_std / 10)
+
+    # Likelihood
+    for i in eachindex(models)
+        prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
+        data[i, :] ~ MvNormal(prediction, σ * I)
+    end
+
+    return nothing
+end
+
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, priors=nothing, ::Type{T}=Float64) where T
     # Use estimated or default priors
     if isnothing(priors)
-        μ_beta ~ Normal(-2.0, 10.0)  # Default fallback
+        components = [Normal(-5, 5), Normal(-0.5, 5), Normal(0, 5)]
+        weights = [0.33, 0.33, 0.34]  # Ensure weights sum to 1
+        μ_beta ~ MixtureModel(components, weights)  # Default fallback
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
     end
 
-    σ_beta ~ InverseGamma(2, 3)
+    # distribution for the population precision
+    σ_beta ~ InverseGamma(3,2)
 
     # distribution for the individual model parameters
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
-        β[i] ~ Normal(μ_beta, σ_beta^2)
-
+        β[i] ~ Normal(μ_beta, σ_beta)
     end
 
     # Distribution for the neural network weights
-    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
-
-
-    # distribution for the model error
-    σ ~ InverseGamma(2, 3)
+    # Network: 2 inputs -> 6 -> 6 -> 1 output
+    # Parameters: (2*6 + 6) + (6*6 + 6) + (6*1 + 1) = 18 + 42 + 7 = 67 total parameters
+    nn_dim = length(neural_network_parameters)
+    # # Use Xavier/Glorot initialization scaling for better convergence with tanh
+    # xavier_scale = sqrt(2.0 / (2 + 6))  
+    nn ~ MvNormal(zeros(nn_dim), 1.0 * I)  # Default initialization
+    
+    # Use empirical Bayes to set reasonable scale
+    data_std = std(vec(data))
+    σ ~ InverseGamma(2, data_std / 10)  # Conservative: noise is ~10% of data variation
+    # σ ~ InverseGamma(2, 0.2)  # Conservative: noise is ~10% of data variation
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -111,20 +210,24 @@ end
 @model function partial_pooled_test(data, timepoints, models, neural_network_parameters, ::Type{T}=Float64) where T
 
     # distribution for the population mean and precision
-    μ_beta ~ Normal(-2.0, 10.0)
-    σ_beta ~ InverseGamma(2, 3)
+    components = [Normal(-5, 5), Normal(-0.5, 5), Normal(0, 5)]
+    weights = [0.33, 0.33, 0.34]
+    μ_beta ~ MixtureModel(components, weights)
+    σ_beta ~ InverseGamma(3,2)
 
     # distribution for the individual model parameters
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
-        β[i] ~ Normal(μ_beta, σ_beta^2)
+        β[i] ~ Normal(μ_beta, σ_beta)
 
     end
 
     nn = neural_network_parameters
 
-    # distribution for the model error
-    σ ~ InverseGamma(2, 3)
+    # Use empirical Bayes to set reasonable scale
+    data_std = std(vec(data))
+    σ ~ InverseGamma(2, data_std / 10)  # Conservative: noise is ~10% of data variation
+
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -234,12 +337,11 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
         # estimate priors
         local priors = estimate_priors(train_data, models_train, initial_nn)
         # initiate turing model
-        local turing_model_train = partial_pooled(
+        local turing_model_train = mixture_partial_pooled(
             train_data.cpeptide[indices_train, :],
             train_data.timepoints,
             models_train[indices_train],
-            initial_nn,
-            priors
+            initial_nn
         )
 
         # train conditional model
@@ -248,10 +350,23 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
 
         # Evaluate on validation data
         models_validation = models_train[indices_validation]
+
+        # fixed parameters for the validation data
+        println("Evaluating on validation data...")
+        local turing_model_validation = mixture_partial_pooled_test(
+            train_data.cpeptide[indices_validation, :],
+            train_data.timepoints,
+            models_validation,
+            nn_params
+        )
+        # train the conditional parameters for the validation data
+        local betas_validation, _ = train_ADVI(turing_model_validation, advi_test_iterations, 10_000, 3, true)
+        # Evaluate on validation data
+
         local objectives_validation = [
             calculate_mse(
                 train_data.cpeptide[idx, :],
-                ADVI_predict(betas_train[i], nn_params, models_validation[i].problem, train_data.timepoints)
+                ADVI_predict(betas_validation[i], nn_params, models_validation[i].problem, train_data.timepoints)
             )
             for (i, idx) in enumerate(indices_validation)
         ]
@@ -269,19 +384,24 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
     sort!(training_results, :loss)
     best_result = first(training_results, 1)
     nn_params = best_result.nn_params[1]
-    betas = best_result.betas[1]
+    betas_train = best_result.betas[1]
     advi_model = advi_models[best_result.j[1]]
     println("Best loss: ", best_result.loss)
 
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
-    local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
+    local turing_model_test = mixture_partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
     # train the conditional parameters for the test data
     local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
 
+    # # train training betas for the best model with fixed nn_params
+    # local turing_model_train = mixture_partial_pooled_test(train_data.cpeptide[indices_train, :], train_data.timepoints, models_train[indices_train], nn_params)
+    # # train the conditional parameters for the training data
+    # local betas_train, _ = train_ADVI(turing_model_train, advi_test_iterations, 10_000, 3, true)
+
     save("data/partial_pooling/training_results_$dataset.jld2", "training_results", training_results)
 
-    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
+    return nn_params, betas_train, betas_test, advi_model, advi_model_test, training_results
 
 end
 
@@ -459,9 +579,9 @@ function get_turing_models(pooling_type, data, timepoints, models, neural_networ
 
     if pooling_type == "partial_pooling"
         if test_mode
-            return partial_pooled_test(data, timepoints, models, neural_network_parameters)
+            return mixture_partial_pooled_test(data, timepoints, models, neural_network_parameters)
         else
-            return partial_pooled(data, timepoints, models, neural_network_parameters, priors)
+            return mixture_partial_pooled(data, timepoints, models, neural_network_parameters)
         end
     elseif pooling_type == "no_pooling"
         if test_mode
