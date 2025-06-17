@@ -1,3 +1,3 @@
 Dataset,Partial_Pooling_DIC,No_Pooling_DIC,DIC_Difference,Better_Model
-Ohashi (Full),221.277,305.657,-84.38,Partial Pooling
-Ohashi (Reduced),206.514,210.565,-4.051,Partial Pooling
+Ohashi (Full),216.568,314.606,-98.039,Partial Pooling
+Ohashi (Reduced),200.178,201.248,-1.07,Partial Pooling

@@ -1,7 +1,7 @@
 Model_Type,Dataset,Count
 MLE,Ohashi (full),5
-partial_pooling,Ohashi (full),3
-partial_pooling,Ohashi (reduced),1
+partial_pooling,Ohashi (full),4
 no_pooling,Ohashi (full),3
 MLE,Ohashi (reduced),0
+partial_pooling,Ohashi (reduced),0
 no_pooling,Ohashi (reduced),0
