@@ -70,17 +70,17 @@ function train_ADVI_with_distributions(turing_model, advi_iterations, posterior_
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
     z = rand(advi_model, posterior_samples)
-    
+
     # sample beta parameters
     sampled_betas = z[union(sym2range[:β]...), :] # sampled parameters
     betas_mean = mean(sampled_betas, dims=2)[:]
-    
+
     if fixed_nn == false
         sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
         nn_params_mean = mean(sampled_nn_params, dims=2)[:]
         return nn_params_mean, sampled_nn_params, betas_mean, sampled_betas, advi_model
     end
-    
+
     return betas_mean, sampled_betas, advi_model
 end
 
@@ -268,6 +268,7 @@ end
 function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     training_results = DataFrame(nn_params=Vector[], betas=Vector[], loss=Float64[], model_index=Int[])
     advi_models = []
+    turing_models = []
 
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
@@ -280,11 +281,9 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
             models_train[indices_train],
             initial_nn,
             priors_train
-        )
-
-        # train conditional model
+        )        # train conditional model
         println("Training on training data...")
-        local nn_params, betas_train, advi_model = train_ADVI(turing_model_train, advi_iterations)
+        local nn_params, nn_samples, betas_train, beta_samples, advi_model = train_ADVI_with_distributions(turing_model_train, advi_iterations)
         # Evaluate on validation data
         println("Evaluating on validation data...")
         models_validation = models_train[indices_validation]
@@ -295,11 +294,10 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
             train_data.cpeptide[indices_validation, :],
             train_data.timepoints,
             models_validation,
-            nn_params,
-            priors_val
+            nn_params, priors_val
         )
         # train the conditional parameters for the validation data
-        local betas_validation, _ = train_ADVI(turing_model_validation, advi_iterations, 10_000, 3, true)
+        local betas_validation, beta_validation_samples, _ = train_ADVI_with_distributions(turing_model_validation, advi_iterations, 10_000, 3, true)
         # Calculate MSE for each subject in the validation set
         local objectives_validation = [
             calculate_mse(
@@ -316,6 +314,7 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
         # Store the results (without test betas for now)
         push!(training_results, (nn_params=copy(nn_params), betas=copy(betas_train), loss=mean_objective, model_index=model_index))
         push!(advi_models, advi_model)
+        push!(turing_models, turing_model_train)
         next!(prog)
     end    # Sort the results by loss and take the best one
     sort!(training_results, :loss)
@@ -323,41 +322,32 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
     nn_params = best_result.nn_params
     betas = best_result.betas
     advi_model = advi_models[best_result.model_index]
+    turing_model = turing_models[best_result.model_index]
     println("Best loss: ", best_result.loss)
 
-    # FIX: Retrain training betas with final nn_params for fair evaluation
-    println("Retraining training betas with final nn_params for fair evaluation...")
-    priors_train_final = estimate_priors(train_data, models_train, nn_params, indices_train)
-    turing_model_train_final = partial_pooled_test(
-        train_data.cpeptide[indices_train, :],
-        train_data.timepoints,
-        models_train[indices_train],
-        nn_params,  # Use the FINAL selected nn_params
-        priors_train_final
-    )
-    # Retrain betas that are compatible with the selected nn_params
-    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 3, true)
-    # Replace the old betas with corrected ones
-    betas = betas_corrected
-    println("Training betas corrected for fair train vs test comparison")
-
+    # # FIX: Retrain training betas with final nn_params for fair evaluation
+    # println("Retraining training betas with final nn_params for fair evaluation...")
+    # # Retrain betas that are compatible with the selected nn_params
+    # betas, betas_samples, _ = train_ADVI_with_distributions(turing_model, advi_iterations, 10_000, 3, true)
+    
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
     prior_test = estimate_priors(test_data, models_test, nn_params)
-    # initiate turing model for the test data
+    # initiate turing model for the test data    
     local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params, prior_test)
     # train the conditional parameters for the test data
-    local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+    local betas_test, beta_test_samples, advi_model_test = train_ADVI_with_distributions(turing_model_test, advi_test_iterations, 10_000, 3, true)
 
     save("data/partial_pooling/training_results_$dataset.jld2", "training_results", training_results)
 
-    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
+    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results, turing_model, turing_model_test
 
 end
 
 function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
     training_results = DataFrame(nn_params=Vector[], betas=Vector[], loss=Float64[], j=Int[])
     advi_models = []
+    turing_models = []
 
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
@@ -369,11 +359,9 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
             train_data.timepoints,
             models_train[indices_train],
             initial_nn
-        )
-
-        # train conditional model
+        )        # train conditional model
         println("Training on training data...")
-        local nn_params, betas, advi_model = train_ADVI(turing_model_train, advi_iterations)
+        local nn_params, nn_samples, betas, beta_samples, advi_model = train_ADVI_with_distributions(turing_model_train, advi_iterations)
 
         # fixed parameters for the test data
         println("Evaluating on validation data...")
@@ -383,10 +371,8 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
             train_data.timepoints,
             models_validation,
             nn_params
-        )
-
-        # train the conditional parameters for the validation data
-        local betas_validation, _ = train_ADVI(turing_model_validation, advi_iterations, 10_000, 3, true)
+        )        # train the conditional parameters for the validation data
+        local betas_validation, beta_validation_samples, _ = train_ADVI_with_distributions(turing_model_validation, advi_iterations, 10_000, 3, true)
         # Calculate MSE for each subject in the validation set
         local objectives_validation = [
             calculate_mse(
@@ -402,6 +388,7 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
         # Store the results
         push!(training_results, (nn_params=copy(nn_params), betas=copy(betas), loss=mean_objective, j=j))
         push!(advi_models, advi_model)
+        push!(turing_models, turing_model_train)
         next!(prog)
     end    # Sort the results by loss and take the best one
     sort!(training_results, :loss)
@@ -409,31 +396,24 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
     nn_params = best_result.nn_params
     betas = best_result.betas
     advi_model = advi_models[best_result.j]
+    turing_model = turing_models[best_result.j]
 
     # FIX: Retrain training betas with final nn_params for fair evaluation
     println("Retraining training betas with final nn_params for fair evaluation...")
-    turing_model_train_final = no_pooling_test(
-        train_data.cpeptide[indices_train, :],
-        train_data.timepoints,
-        models_train[indices_train],
-        nn_params  # Use the FINAL selected nn_params
-    )
-    # Retrain betas that are compatible with the selected nn_params  
-    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 3, true)
+ 
+    betas_corrected, beta_corrected_samples, _ = train_ADVI_with_distributions(turing_model, advi_iterations, 10_000, 3, true)
     # Replace the old betas with corrected ones
     betas = betas_corrected
-    println("Training betas corrected for fair train vs test comparison")
-
-    # Only train test betas for the best model
+    println("Training betas corrected for fair train vs test comparison")    # Only train test betas for the best model
     println("Training betas on test data for the best model...")
     local turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
     # train the conditional parameters for the test data
-    local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+    local betas_test, beta_test_samples, advi_model_test = train_ADVI_with_distributions(turing_model_test, advi_test_iterations, 10_000, 3, true)
 
     save("data/no_pooling/training_results_$dataset.jld2", "training_results", training_results)
     println("Best loss: ", best_result.loss)
 
-    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
+    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results, turing_model, turing_model_test
 
 end
 

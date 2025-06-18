@@ -86,7 +86,7 @@ function cude_vi(CONFIG)
         
         # Train the model using unified function
         println("Training initial ADVI models...")
-        nn_params, betas_training, betas_test, advi_model, advi_model_test, _ = train_ADVI_models_unified(
+        nn_params, betas_training, betas_test, advi_model, advi_model_test, _, turing_model, turing_model_test = train_ADVI_models_unified(
             CONFIG.pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train,
             test_data, models_test, advi_iterations, advi_test_iterations, dataset)
 
@@ -96,6 +96,10 @@ function cude_vi(CONFIG)
         if !CONFIG.quick_train
             println("Saving model...")
             save_model(folder, dataset, advi_model, advi_model_test, nn_params, betas_training, betas_test)
+            jldopen("data/$folder/$(dataset)_turing_model.jld2", "w") do file
+                file["turing_model_train"] = turing_model
+                file["turing_model_test"] = turing_model_test
+            end
         end
 
         println("Training completed!")
@@ -131,14 +135,18 @@ function cude_vi(CONFIG)
     ######### FIGURES ########
     if CONFIG.figures
         println("\nGenerating figures...")        # Create models for plotting
-        priors_train = estimate_priors(train_data, models_train[indices_train], nn_params)
-        turing_model_train = get_turing_models(
-            CONFIG.pooling_type, train_data.cpeptide[indices_train, :], train_data.timepoints,
-            models_train[indices_train], nn_params, false, priors_train)
-        priors_test = estimate_priors(test_data, models_test, nn_params)
-        turing_model_test = get_turing_models(
-            CONFIG.pooling_type, test_data.cpeptide, test_data.timepoints,
-            models_test, nn_params, true, priors_test)
+        # Load Turing models if they exist and figures are requested
+        turing_model_train = nothing
+        turing_model_test = nothing
+        if isfile("data/$folder/$(dataset)_turing_model.jld2")
+            jldopen("data/$folder/$(dataset)_turing_model.jld2") do file
+                turing_model_train = file["turing_model_train"]
+                turing_model_test = file["turing_model_test"]
+            end
+            println("Turing models loaded for plotting")
+        else
+            println("Warning: Turing models not found, some plots may not work")
+        end
 
         # Ensure output directories exist
         if !isdir("figures/$folder")
@@ -235,7 +243,7 @@ for pooling_type in pooling_types
             # Training settings
             train_model=true,
 
-            quick_train=true,  # Set to true for faster testing
+            quick_train=false,  # Set to true for faster testing
 
 
             # Analysis settings
