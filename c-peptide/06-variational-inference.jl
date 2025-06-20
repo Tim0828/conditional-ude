@@ -178,7 +178,7 @@ function cude_vi(CONFIG)
     println("="^60)
 end
 
-pooling_types = ["partial_pooling"]
+pooling_types = ["partial_pooling", "no_pooling"]
 # datasets 
 datasets = ["ohashi_low", "ohashi_rich"]
 
@@ -199,10 +199,10 @@ for pooling_type in pooling_types
             figures=true,
 
             # Training parameters (used if not quick_train)
-            advi_iterations=6000,
-            advi_test_iterations=3000,
-            n_samples=50_000,
-            n_best=1,
+            advi_iterations=2000,
+            advi_test_iterations=2000,
+            n_samples=25_000,
+            n_best=3,
 
             # Quick training parameters (used if quick_train)
             quick_advi_iterations=100,
