@@ -4,3 +4,8 @@ Ohashi (full),T2DM,MLE,No_Pooling,0.091,0.329,-0.238,-3.475,0.004
 Ohashi (full),T2DM,Partial_Pooling,No_Pooling,0.146,0.329,-0.183,-3.587,0.003
 Ohashi (full),NGT,MLE,Partial_Pooling,0.333,0.187,0.146,2.52,0.024
 Ohashi (full),NGT,Partial_Pooling,No_Pooling,0.187,0.279,-0.091,-2.84,0.013
+Ohashi (reduced),All,MLE,Partial_Pooling,0.648,27.073,-26.425,-3.694,0.002
+Ohashi (reduced),All,Partial_Pooling,No_Pooling,27.073,1.096,25.978,3.562,0.003
+Ohashi (reduced),NGT,MLE,Partial_Pooling,0.562,44.956,-44.394,-3.479,0.013
+Ohashi (reduced),NGT,Partial_Pooling,No_Pooling,44.956,1.305,43.651,3.37,0.015
+Cross_Dataset,All,partial_pooling (full),partial_pooling (reduced),0.173,27.073,-26.9,-3.758,0.002

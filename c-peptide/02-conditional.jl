@@ -112,42 +112,6 @@ jldopen("data/MLE/mse_$dataset.jld2", "w") do file
     file["test"] = objectives_test
 end
 
-# Calculate R² for train and test data
-function calculate_r2(models, data, betas, neural_params, timepoints)
-    n_subjects = length(models)
-    r2_values = Float64[]
-    
-    for i in 1:n_subjects
-        # Get model predictions
-        sol = solve(models[i].problem, 
-                   p=ComponentArray(ode=[betas[i]], neural=neural_params), 
-                   saveat=timepoints, 
-                   save_idxs=1)
-        predictions = sol(timepoints)[1,:]
-        
-        # Calculate R²
-        observed = data.cpeptide[i,:]
-        ss_res = sum((observed .- predictions).^2)
-        ss_tot = sum((observed .- mean(observed)).^2)
-        r2 = 1 - (ss_res / ss_tot)
-        
-        push!(r2_values, r2)
-    end
-    
-    return r2_values
-end
-
-r2_train = calculate_r2(models_train, train_data, betas_train, neural_network_parameters, train_data.timepoints)
-r2_test = calculate_r2(models_test, test_data, betas_test, neural_network_parameters, test_data.timepoints)
-
-# Save R² values
-jldopen("data/MLE/r2_$dataset.jld2", "w") do file
-    file["train"] = r2_train
-    file["test"] = r2_test
-end
-
-println("Mean R² (train): $(round(mean(r2_train), digits=4))")
-println("Mean R² (test): $(round(mean(r2_test), digits=4))")
 
 if figures
     ############### Correlation Plots ###############
@@ -272,7 +236,7 @@ if figures
         end
         
         # # Link y-axes to have the same scale
-        # linkyaxes!(axes...)
+        linkyaxes!(axes...)
         
         fig
     end
