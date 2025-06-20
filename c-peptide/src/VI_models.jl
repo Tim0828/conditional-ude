@@ -42,7 +42,7 @@ function get_initial_parameters(train_data, indices_train, models_train, n_sampl
     return best_results
 end
 
-function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=8, fixed_nn=false)
+function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=6, fixed_nn=false)
     advi = ADVI(mcmc_samples, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
@@ -105,7 +105,7 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, priors=nothing, ::Type{T}=Float64) where T
     # Use estimated or default priors
     if isnothing(priors)
-        μ_beta ~ Normal(0.0, 10)  # Default fallback
+        μ_beta ~ Normal(0.0, 5.0)  # Default fallback
         σ_beta ~ InverseGamma(2,3)
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
@@ -120,10 +120,10 @@ end
     end
 
     # Distribution for the neural network weights
-    nn ~ MvNormal(zeros(length(neural_network_parameters)), 3.0 * I)
+    nn ~ MvNormal(zeros(length(neural_network_parameters)), 2.0 * I) # Heavier tail
     # nn ~ MvNormal(neural_network_parameters, 3.0 * I)
 
-    σ ~ InverseGamma(2, 3)
+    σ ~ InverseGamma(2, 1)
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -138,7 +138,7 @@ end
 
     # distribution for the population mean and precision
     if isnothing(priors)
-        μ_beta ~ Normal(0.0, 10)  # Default fallback
+        μ_beta ~ Normal(0.0, 5.0)  # Default fallback
         σ_beta ~ InverseGamma(2,3)
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
@@ -154,7 +154,7 @@ end
 
     nn = neural_network_parameters
 
-    σ ~ InverseGamma(2, 3)
+    σ ~ InverseGamma(2, 1)
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -322,20 +322,20 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
  
     println("NN params: ", nn_params)
     # FIX: Retrain training betas with final nn_params for fair evaluation
-    # println("Retraining training betas with final nn_params for fair evaluation...")
-    # priors_train_final = estimate_priors2(betas)
-    # turing_model_train_final = partial_pooled_test(
-    #     train_data.cpeptide[indices_train, :],
-    #     train_data.timepoints,
-    #     models_train[indices_train],
-    #     nn_params,  # Use the FINAL selected nn_params
-    #     priors_train_final
-    # )
-    # # Retrain betas that are compatible with the selected nn_params
-    # betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 3, true)
-    # # Replace the old betas with corrected ones
-    # betas = betas_corrected
-    # println("Training betas corrected for fair train vs test comparison")
+    println("Retraining training betas with final nn_params for fair evaluation...")
+    priors_train_final = estimate_priors2(betas)
+    turing_model_train_final = partial_pooled_test(
+        train_data.cpeptide[indices_train, :],
+        train_data.timepoints,
+        models_train[indices_train],
+        nn_params,  # Use the selected nn_params
+        priors_train_final
+    )
+    # Retrain betas that are compatible with the selected nn_params
+    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 8, true)
+    # Replace the old betas with corrected ones
+    betas = betas_corrected
+    println("Training betas corrected for fair train vs test comparison")
 
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
@@ -350,19 +350,6 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
     println("DIC for partial pooling on $(dataset): ", round(dic, digits=2))
     # save DIC 
     save("data/partial_pooling/dic_$dataset.jld2", "dic", dic)
-
-    # Calculate R² for the test set
-    r2_test = calculate_r_squared(test_data.cpeptide, betas_test, nn_params, models_test, test_data.timepoints)
-    println("Test R² for partial pooling on $(dataset): ", round(mean(r2_test), digits=4))
-
-    # Calculate R² for the training set
-    r2_train = calculate_r_squared(train_data.cpeptide[indices_train, :], betas_training, nn_params, models_train[indices_train], train_data.timepoints)
-    println("Train R² for partial pooling on $(dataset): ", round(mean(r2_train), digits=4))
-    # Save R² values
-    jldopen("data/partial_pooling/r2_$dataset.jld2", "w") do file
-        file["train"] = r2_train
-        file["test"] = r2_test
-    end
 
     save("data/partial_pooling/training_results_$dataset.jld2", "training_results", training_results)
 
@@ -425,6 +412,21 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
     betas = best_result.betas
     advi_model = advi_models[best_result.j]
 
+    println("Retraining training betas with final nn_params for fair evaluation...")
+    priors_train_final = estimate_priors2(betas)
+    turing_model_train_final = no_pooling_test(
+        train_data.cpeptide[indices_train, :],
+        train_data.timepoints,
+        models_train[indices_train],
+        nn_params,  # Use the selected nn_params
+        priors_train_final
+    )
+    # Retrain betas that are compatible with the selected nn_params
+    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 8, true)
+    # Replace the old betas with corrected ones
+    betas = betas_corrected
+    println("Training betas corrected for fair train vs test comparison")
+
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
     local turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
@@ -440,18 +442,6 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
     # save DIC 
     save("data/no_pooling/dic_$dataset.jld2", "dic", dic)
 
-    # Calculate R² for the test set
-    r2_test = calculate_r_squared(test_data.cpeptide, betas_test, nn_params, models_test, test_data.timepoints)
-    println("Test R² for partial pooling on $(dataset): ", round(mean(r2_test), digits=4))
-
-    # Calculate R² for the training set
-    r2_train = calculate_r_squared(train_data.cpeptide[indices_train, :], betas, nn_params, models_train[indices_train], train_data.timepoints)
-    println("Train R² for no pooling on $(dataset): ", round(mean(r2_train), digits=4))
-    # Save R² values
-    jldopen("data/no_pooling/r2_$dataset.jld2", "w") do file
-        file["train"] = r2_train
-        file["test"] = r2_test
-    end
 
     return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
 
@@ -492,7 +482,7 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
             best_beta = 0.0 # default
             best_loss = Inf
 
-            for test_beta in -2:0.01:2.0
+            for test_beta in -10:0.01:10.0
                 try
                     loss = simple_loss([test_beta])
                     if loss < best_loss
@@ -523,7 +513,7 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
             best_beta = 0.0 # default
             best_loss = Inf
 
-            for test_beta in -2:0.01:2.0
+            for test_beta in -10:0.01:10.0
                 try
                     loss = simple_loss([test_beta])
                     if loss < best_loss
@@ -544,13 +534,13 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
     # Calculate statistics for priors
     if isempty(beta_estimates)
         μ_beta_estimate = 0.0
-        σ_beta_estimate = 0.5
+        σ_beta_estimate = 5.0
         println("Warning: No valid beta estimates. Using defaults: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
     else
         μ_beta_estimate = mean(beta_estimates)
         σ_beta_estimate = std(beta_estimates)
-        if σ_beta_estimate < 0.1
-            σ_beta_estimate = 0.1 # Ensure σ_beta is not too small
+        if σ_beta_estimate < 1.0
+            σ_beta_estimate = 1.0 # Ensure σ_beta is not too small
             println("Warning: σ_beta estimate too small, setting to 0.5")
         end
         println("Estimated priors: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
@@ -739,25 +729,4 @@ function compute_dic(advi_model, turing_model, data, models, nn_params, timepoin
 
     dic = 2 * mean(devs) - dev_mean
     return dic
-end
-
-# Calculate R² for the test set
-function calculate_r_squared(cpeptide_data, betas, nn_params, models, timepoints)
-    n_subjects = length(models)
-    r2_values = Float64[]
-
-    for i in 1:n_subjects
-        # Get model predictions using ADVI_predict
-        predictions = ADVI_predict(betas[i], nn_params, models[i].problem, timepoints)
-
-        # Calculate R² for this subject
-        observed = cpeptide_data[i, :]
-        ss_res = sum((observed .- predictions) .^ 2)
-        ss_tot = sum((observed .- mean(observed)) .^ 2)
-        r2 = 1 - (ss_res / ss_tot)
-
-        push!(r2_values, r2)
-    end
-
-    return r2_values
 end
