@@ -12,7 +12,7 @@ function get_initial_parameters(train_data, indices_train, models_train, n_sampl
         nn_params = init_params(models_train[j].chain)
         betas = Vector{Float64}(undef, length(training_models))
         # Sample betas from a normal distribution
-        μ_beta_dist = Normal(0.0, 3.0)
+        μ_beta_dist = Normal(0.0, 10.0)
         for i in eachindex(training_models)
             betas[i] = rand(μ_beta_dist)
         end
@@ -42,7 +42,7 @@ function get_initial_parameters(train_data, indices_train, models_train, n_sampl
     return best_results
 end
 
-function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=3, fixed_nn=false)
+function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=6, fixed_nn=false)
     advi = ADVI(mcmc_samples, advi_iterations)
     advi_model = vi(turing_model, advi)
     _, sym2range = bijector(turing_model, Val(true))
@@ -58,6 +58,32 @@ function train_ADVI(turing_model, advi_iterations, posterior_samples=10_000, mcm
     return betas, advi_model
 end
 
+function train_ADVI_with_distributions(turing_model, advi_iterations, posterior_samples=10_000, mcmc_samples=3, fixed_nn=false)
+    """
+    Alternative train_ADVI function that maintains posterior distributions for parameters
+    
+    Returns:
+        If fixed_nn=false: (nn_params_mean, nn_params_samples, betas_mean, betas_samples, advi_model)
+        If fixed_nn=true: (betas_mean, betas_samples, advi_model)
+    """
+    advi = ADVI(mcmc_samples, advi_iterations)
+    advi_model = vi(turing_model, advi)
+    _, sym2range = bijector(turing_model, Val(true))
+    z = rand(advi_model, posterior_samples)
+
+    # sample beta parameters
+    sampled_betas = z[union(sym2range[:β]...), :] # sampled parameters
+    betas_mean = mean(sampled_betas, dims=2)[:]
+
+    if fixed_nn == false
+        sampled_nn_params = z[union(sym2range[:nn]...), :] # sampled parameters
+        nn_params_mean = mean(sampled_nn_params, dims=2)[:]
+        return nn_params_mean, sampled_nn_params, betas_mean, sampled_betas, advi_model
+    end
+
+    return betas_mean, sampled_betas, advi_model
+end
+
 ##### model def. ######
 
 # Optimizable function: neural network parameters, contains
@@ -69,6 +95,7 @@ function ADVI_predict(β, neural_network_parameters, problem, timepoints)
 
     if length(solution) < length(timepoints)
         # if the solution is shorter than the timepoints, we need to pad it
+        println("Warning: Solution length is shorter than timepoints. Padding with missing values.")
         solution = vcat(solution, fill(missing, length(timepoints) - length(solution)))
     end
 
@@ -78,8 +105,8 @@ end
 @model function partial_pooled(data, timepoints, models, neural_network_parameters, priors=nothing, ::Type{T}=Float64) where T
     # Use estimated or default priors
     if isnothing(priors)
-        μ_beta ~ Normal(0.0, 3.0)  # Default fallback
-        σ_beta ~ InverseGamma(3,2)
+        μ_beta ~ Normal(0.0, 5.0)  # Default fallback
+        σ_beta ~ InverseGamma(2, 3)
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
         σ_beta ~ priors.σ_beta_prior  # Data-driven prior
@@ -93,15 +120,10 @@ end
     end
 
     # Distribution for the neural network weights
-    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
+    nn ~ MvNormal(zeros(length(neural_network_parameters)), 2.0 * I) # Heavier tail
+    # nn ~ MvNormal(neural_network_parameters, 3.0 * I)
 
-
-    # empircal bayes for the model error
-    # Estimate noise variance from data (assume 10% of data variance is noise)
-    data_variance = var(skipmissing(vec(data)))
-    noise_variance = 0.1 * data_variance
-    beta = 2 * noise_variance  # Scale for InverseGamma
-    σ ~ InverseGamma(3, beta) # finite variance
+    σ ~ InverseGamma(2, 1)
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -116,8 +138,8 @@ end
 
     # distribution for the population mean and precision
     if isnothing(priors)
-        μ_beta ~ Normal(0.0, 3.0)  # Default fallback
-        σ_beta ~ InverseGamma(3, 2)
+        μ_beta ~ Normal(0.0, 5.0)  # Default fallback
+        σ_beta ~ InverseGamma(2, 3)
     else
         μ_beta ~ priors.μ_beta_prior  # Data-driven prior
         σ_beta ~ priors.σ_beta_prior  # Data-driven prior
@@ -132,12 +154,7 @@ end
 
     nn = neural_network_parameters
 
-    # empircal bayes for the model error
-    # Estimate noise variance from data (assume 10% of data variance is noise)
-    data_variance = var(skipmissing(vec(data)))
-    noise_variance = 0.1 * data_variance
-    beta = 2 * noise_variance  # Scale for InverseGamma
-    σ ~ InverseGamma(3, beta) # finite variance
+    σ ~ InverseGamma(2, 1)
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -155,18 +172,13 @@ end
     β = Vector{T}(undef, length(models))
     for i in eachindex(models)
         # Each β gets its own independent prior
-        β[i] ~ Normal(0.0, 5.0)  
+        β[i] ~ Normal(0.0, 5.0)
     end
 
     # Neural network parameters
-    nn ~ MvNormal(zeros(length(neural_network_parameters)), 1.0 * I)
+    nn ~ MvNormal(neural_network_parameters, 1.0 * I)
 
-    # empircal bayes for the model error
-    # Estimate noise variance from data (assume 10% of data variance is noise)
-    data_variance = var(skipmissing(vec(data)))
-    noise_variance = 0.1 * data_variance
-    beta = 2 * noise_variance  # Scale for InverseGamma
-    σ ~ InverseGamma(3, beta) # finite variance
+    σ ~ InverseGamma(2, 1)
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -190,12 +202,7 @@ end
     # Neural network parameters
     nn = neural_network_parameters
 
-    # empircal bayes for the model error
-    # Estimate noise variance from data (assume 10% of data variance is noise)
-    data_variance = var(skipmissing(vec(data)))
-    noise_variance = 0.1 * data_variance
-    beta = 2 * noise_variance  # Scale for InverseGamma
-    σ ~ InverseGamma(3, beta) # finite variance
+    σ ~ InverseGamma(2, 1)
 
     for i in eachindex(models)
         prediction = ADVI_predict(β[i], nn, models[i].problem, timepoints)
@@ -258,11 +265,20 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
         # train conditional model
         println("Training on training data...")
         local nn_params, betas_train, advi_model = train_ADVI(turing_model_train, advi_iterations)
+
+        train_mse = [
+            calculate_mse(
+                train_data.cpeptide[idx, :],
+                ADVI_predict(betas_train[i], nn_params, models_train[idx].problem, train_data.timepoints)
+            )
+            for (i, idx) in enumerate(indices_train)
+        ]
+        println("Training set MSE: ", mean(train_mse), " ± ", std(train_mse))
         # Evaluate on validation data
         println("Evaluating on validation data...")
         models_validation = models_train[indices_validation]
 
-        priors_val = estimate_priors(train_data, models_train, nn_params, indices_validation)
+        priors_val = estimate_priors2(betas_train)  # Estimate priors based on training betas
         # train betas on validation data with fixed nn-params
         local turing_model_validation = partial_pooled_test(
             train_data.cpeptide[indices_validation, :],
@@ -272,7 +288,7 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
             priors_val
         )
         # train the conditional parameters for the validation data
-        local betas_validation, _ = train_ADVI(turing_model_validation, advi_iterations, 10_000, 3, true)
+        local betas_validation, _ = train_ADVI(turing_model_validation, advi_iterations, 10_000, 8, true)
         # Calculate MSE for each subject in the validation set
         local objectives_validation = [
             calculate_mse(
@@ -286,31 +302,58 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
         std_objective = std(objectives_validation)
         println("Validation set MSE: mean=$mean_objective, std=$std_objective")
 
+        pred1 = ADVI_predict(betas_train[1], nn_params, models_train[1].problem, train_data.timepoints)
+        pred2 = ADVI_predict(betas_train[1] .+ 1.0, nn_params, models_train[1].problem, train_data.timepoints)
+        println("Prediction difference: ", pred2 - pred1)
+
         # Store the results (without test betas for now)
         push!(training_results, (nn_params=copy(nn_params), betas=copy(betas_train), loss=mean_objective, model_index=model_index))
         push!(advi_models, advi_model)
         next!(prog)
-    end
-
-    # Sort the results by loss and take the best one
+    end    # Sort the results by loss and take the best one
     sort!(training_results, :loss)
     best_result = training_results[1, :]
     nn_params = best_result.nn_params
-    betas = best_result.betas
+    betas_training = best_result.betas
     advi_model = advi_models[best_result.model_index]
     println("Best loss: ", best_result.loss)
 
+    println("Train betas: ", betas_training)
+
+    println("NN params: ", nn_params)
+    # FIX: Retrain training betas with final nn_params for fair evaluation
+    println("Retraining training betas with final nn_params for fair evaluation...")
+    priors_train_final = estimate_priors2(betas)
+    turing_model_train_final = partial_pooled_test(
+        train_data.cpeptide[indices_train, :],
+        train_data.timepoints,
+        models_train[indices_train],
+        nn_params,  # Use the selected nn_params
+        priors_train_final
+    )
+    # Retrain betas that are compatible with the selected nn_params
+    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 8, true)
+    # Replace the old betas with corrected ones
+    betas = betas_corrected
+    println("Training betas corrected for fair train vs test comparison")
+
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
-    prior_test = estimate_priors(test_data, models_test, nn_params)
+    prior_test = estimate_priors2(betas_training)
     # initiate turing model for the test data
     local turing_model_test = partial_pooled_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params, prior_test)
     # train the conditional parameters for the test data
-    local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+    local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 8, true)
+    println("Test betas: ", betas_test)
+    # Compute DIC for the test set
+    dic = compute_dic(advi_model_test, turing_model_test, test_data.cpeptide, models_test, nn_params, test_data.timepoints)
+    println("DIC for partial pooling on $(dataset): ", round(dic, digits=2))
+    # save DIC 
+    save("data/partial_pooling/dic_$dataset.jld2", "dic", dic)
 
     save("data/partial_pooling/training_results_$dataset.jld2", "training_results", training_results)
 
-    return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
+    return nn_params, betas_training, betas_test, advi_model, advi_model_test, training_results
 
 end
 
@@ -345,7 +388,7 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
         )
 
         # train the conditional parameters for the validation data
-        local betas_validation, _ = train_ADVI(turing_model_validation, advi_iterations, 10_000, 3, true)
+        local betas_validation, _ = train_ADVI(turing_model_validation, advi_iterations, 10_000, 8, true)
         # Calculate MSE for each subject in the validation set
         local objectives_validation = [
             calculate_mse(
@@ -362,30 +405,63 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
         push!(training_results, (nn_params=copy(nn_params), betas=copy(betas), loss=mean_objective, j=j))
         push!(advi_models, advi_model)
         next!(prog)
-    end
-
-    # Sort the results by loss and take the best one
+    end    # Sort the results by loss and take the best one
     sort!(training_results, :loss)
     best_result = training_results[1, :]
     nn_params = best_result.nn_params
     betas = best_result.betas
     advi_model = advi_models[best_result.j]
-    
+
+    println("Retraining training betas with final nn_params for fair evaluation...")
+    priors_train_final = estimate_priors2(betas)
+    turing_model_train_final = no_pooling_test(
+        train_data.cpeptide[indices_train, :],
+        train_data.timepoints,
+        models_train[indices_train],
+        nn_params,  # Use the selected nn_params
+        priors_train_final
+    )
+    # Retrain betas that are compatible with the selected nn_params
+    betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 8, true)
+    # Replace the old betas with corrected ones
+    betas = betas_corrected
+    println("Training betas corrected for fair train vs test comparison")
+
     # Only train test betas for the best model
     println("Training betas on test data for the best model...")
     local turing_model_test = no_pooling_test(test_data.cpeptide, test_data.timepoints, models_test, nn_params)
     # train the conditional parameters for the test data
-    local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 3, true)
+    local betas_test, advi_model_test = train_ADVI(turing_model_test, advi_test_iterations, 10_000, 8, true)
 
     save("data/no_pooling/training_results_$dataset.jld2", "training_results", training_results)
     println("Best loss: ", best_result.loss)
+
+    # Compute DIC for the test set
+    dic = compute_dic(advi_model_test, turing_model_test, test_data.cpeptide, models_test, nn_params, test_data.timepoints)
+    println("DIC for no pooling on $(dataset): ", round(dic, digits=2))
+    # save DIC 
+    save("data/no_pooling/dic_$dataset.jld2", "dic", dic)
+
 
     return nn_params, betas, betas_test, advi_model, advi_model_test, training_results
 
 end
 
+function estimate_priors2(train_betas)
+    # Estimate priors based on the training betas
+    μ_beta_estimate = mean(train_betas)
+    σ_beta_estimate = std(train_betas)
+    alpha = 3.0 # Shape parameter for InverseGamma
+    beta = 2 * σ_beta_estimate # Scale parameter for InverseGamma
+    return (
+        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate),
+        σ_beta_prior=InverseGamma(alpha, beta),
+        μ_beta_estimate=μ_beta_estimate
+    )
+end
 
 function estimate_priors(train_data, models, nn_params, indices=nothing)
+    return nothing
     # Initialize storage for parameter estimates
     beta_estimates = Float64[]
 
@@ -393,7 +469,7 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
     if indices !== nothing
         models_subset = models[indices]
         prog = Progress(length(models_subset); dt=0.01, desc="Estimating priors... ", showspeed=true, color=:firebrick)
-        
+
         for (i, idx) in enumerate(indices)
             # Define proper scalar loss function
             function simple_loss(β)
@@ -406,7 +482,7 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
             best_beta = 0.0 # default
             best_loss = Inf
 
-            for test_beta in -2:0.01:2.0
+            for test_beta in -10:0.01:10.0
                 try
                     loss = simple_loss([test_beta])
                     if loss < best_loss
@@ -437,7 +513,7 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
             best_beta = 0.0 # default
             best_loss = Inf
 
-            for test_beta in -2:0.01:2.0
+            for test_beta in -10:0.01:10.0
                 try
                     loss = simple_loss([test_beta])
                     if loss < best_loss
@@ -454,29 +530,33 @@ function estimate_priors(train_data, models, nn_params, indices=nothing)
         end
     end
 
-    alpha =3.0
+    alpha = 3.0
     # Calculate statistics for priors
     if isempty(beta_estimates)
         μ_beta_estimate = 0.0
-        σ_beta_estimate = 3.0
+        σ_beta_estimate = 5.0
         println("Warning: No valid beta estimates. Using defaults: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
     else
         μ_beta_estimate = mean(beta_estimates)
-        σ_beta_estimate = std(beta_estimates) 
-        println("Estimated priors: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
-        if σ_beta_estimate < 0.5
-            σ_beta_estimate = 0.5 # Ensure σ_beta is not too small
+        σ_beta_estimate = std(beta_estimates)
+        if σ_beta_estimate < 1.0
+            σ_beta_estimate = 1.0 # Ensure σ_beta is not too small
             println("Warning: σ_beta estimate too small, setting to 0.5")
         end
-        beta = 2 * σ_beta_estimate 
+        println("Estimated priors: μ_beta=$μ_beta_estimate, σ_beta=$σ_beta_estimate")
+        # if σ_beta_estimate < 0.5
+        #     σ_beta_estimate = 0.5 # Ensure σ_beta is not too small
+        #     println("Warning: σ_beta estimate too small, setting to 0.5")
+        # end
+        beta = 2 * σ_beta_estimate
     end
 
     # Return suggested priors
     return (
-        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate), 
-        σ_beta_prior=InverseGamma(alpha, beta), 
+        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate),
+        σ_beta_prior=InverseGamma(alpha, beta),
         μ_beta_estimate=μ_beta_estimate
-        )
+    )
 end
 
 function train_ADVI_models_unified(pooling_type, initial_nn_sets, train_data, indices_train, indices_validation, models_train, test_data, models_test, advi_iterations, advi_test_iterations, dataset)
@@ -529,7 +609,7 @@ function get_turing_models(pooling_type, data, timepoints, models, neural_networ
     Returns:
         Turing model
     """
-    
+
     if pooling_type == "partial_pooling"
         if test_mode
             return partial_pooled_test(data, timepoints, models, neural_network_parameters)
@@ -650,4 +730,3 @@ function compute_dic(advi_model, turing_model, data, models, nn_params, timepoin
     dic = 2 * mean(devs) - dev_mean
     return dic
 end
-
