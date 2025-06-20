@@ -1,0 +1,7 @@
+Metric,MLE,no_pooling,partial_pooling
+Second Phase Clamp,-0.797*,-0.765*,-0.848*
+First Phase Clamp,-0.801*,-0.715*,-0.838*
+Age,0.632*,0.408*,0.544*
+Insulin Sensitivity,-0.603*,-0.223,-0.341*
+BMI,0.377*,0.096,0.196
+Body Weight,0.319,0.010,0.135
