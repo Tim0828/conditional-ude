@@ -172,6 +172,18 @@ glucose_data = Matrix{Float64}(data[data[!,:Molecule] .== "Glucose", 3:end-1]) .
 cpeptide_data = Matrix{Float64}(data[data[!,:Molecule] .== "C-peptide", 3:end-1]).* 0.3311 # convert to nmol/L
 ages = repeat([29], size(glucose_data, 1))
 
+# Calculate measurement error statistics for C-peptide data
+cpeptide_mean = mean(vec(cpeptide_data))
+cpeptide_std = std(vec(cpeptide_data))
+cpeptide_cv = cpeptide_std ./ cpeptide_mean # coefficient of variation
+cpeptide_sem = cpeptide_std ./ sqrt(size(cpeptide_data, 1)) # standard error of the mean
+
+println("C-peptide measurement statistics:")
+println("Mean: ", cpeptide_mean)
+println("Standard deviation: ", cpeptide_std)
+println("Coefficient of variation: ", cpeptide_cv)
+println("Standard error of mean: ", cpeptide_sem)
+
 # Save all data in a convenient JLD2 hierarchical format
 jldsave(
     "data/fujita.jld2";

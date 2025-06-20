@@ -12,17 +12,17 @@ using OrdinaryDiffEq
 using Optimization, OptimizationOptimisers, OptimizationOptimJL
 using SciMLSensitivity, LineSearches
 
-COLORS = Dict(
-    "T2DM" => (1/255, 120/255, 80/255),
-    "NGT" => RGBf(1/255, 101/255, 157/255),
-    "IGT" => RGBf(201/255, 78/255, 0/255)
-)
+# COLORS = Dict(
+#     "T2DM" => (1/255, 120/255, 80/255),
+#     "NGT" => RGBf(1/255, 101/255, 157/255),
+#     "IGT" => RGBf(201/255, 78/255, 0/255)
+# )
 
-COLORLIST = [
-    RGBf(252/255, 253/255, 191/255),
-    RGBf(254/255, 191/255, 132/255),
-    RGBf(250/255, 127/255, 94/255),
-]
+# COLORLIST = [
+#     RGBf(252/255, 253/255, 191/255),
+#     RGBf(254/255, 191/255, 132/255),
+#     RGBf(250/255, 127/255, 94/255),
+# ]
 
 abstract type CPeptideModel end
 
@@ -160,7 +160,8 @@ function c_peptide_cude!(du, u, p, t, chain::SimpleChain, glucose::LinearInterpo
     glucose_t0::Real, Cb::T, k0::T, k1::T, k2::T) where T <: Real
 
     # extract vector of conditional parameters
-    β = exp.(p.ode)
+    # β = exp.(p.ode)
+    β = p.ode
 
     # production by neural network, forced in steady-state at t0
     ΔG = glucose(t) - glucose(glucose_t0)

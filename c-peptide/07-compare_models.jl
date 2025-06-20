@@ -1291,25 +1291,6 @@ println("GENERATING COMBINED MODEL FIT FIGURE")
 println("="^80)
 
 
-# Ensure we have exactly 3 subjects (if some types are missing, fill with available subjects)
-while length(subjects_to_plot) < 3 && length(subjects_to_plot) < length(test_data.types)
-    # Find next available subject that's not already selected
-    for i in 1:length(test_data.types)
-        if !(i in subjects_to_plot)
-            push!(subjects_to_plot, i)
-            break
-        end
-    end
-end
-
-# Limit to 3 subjects for the plot
-subjects_to_plot = subjects_to_plot[1:min(3, length(subjects_to_plot))]
-
-println("Selected subjects for combined model fit plot: $subjects_to_plot")
-println("Subject types: $(test_data.types[subjects_to_plot])")
-
-
-
 # Function to create a combined model fit figure showing all three model types
 function create_combined_model_fit_figure(test_data, models, dataset="ohashi_rich")
     fig = Figure(size=(1200, 400))
@@ -1366,11 +1347,13 @@ function create_combined_model_fit_figure(test_data, models, dataset="ohashi_ric
                 # Get neural network parameters and betas
                 nn_params = model_data["nn"]
                 betas_test = model_data["beta_test"]
+
+                sol_timepoints = test_data.timepoints[1]:0.01:test_data.timepoints[end]  # Use finer resolution for plotting
                 
                 # Create models for test subjects
                 t2dm = test_data.types .== "T2DM"
                 models_test = [
-                    CPeptideCUDEModel(test_data.glucose[i, :], test_data.timepoints, 
+                    CPeptideCUDEModel(test_data.glucose[i, :], sol_timepoints,
                                     test_data.ages[i], chain, test_data.cpeptide[i, :], t2dm[i]) 
                     for i in axes(test_data.glucose, 1)
                 ]
@@ -1381,10 +1364,10 @@ function create_combined_model_fit_figure(test_data, models, dataset="ohashi_ric
                         # Calculate model solution
                         sol = Array(solve(models_test[subject_idx].problem,
                             p=ComponentArray(ode=[betas_test[subject_idx]], neural=nn_params),
-                            saveat=test_data.timepoints, save_idxs=1))
+                            saveat=sol_timepoints, save_idxs=1))
 
                         # Plot model fit
-                        lines!(axs[i], test_data.timepoints, sol, 
+                        lines!(axs[i], sol_timepoints, sol,
                               color=model_colors[model_type], linewidth=2.5, 
                               label=model_labels[model_type])
                     catch e
@@ -1416,15 +1399,6 @@ end
 # Define subjects to plot - select representative subjects from different types
 # Select one subject from each type (NGT, IGT, T2DM) for visualization
 
-
-# Find representative subjects from each type in test data
-for subject_type in ["NGT", "IGT", "T2DM"]
-    type_indices = findall(x -> x == subject_type, test_data.types)
-    if !isempty(type_indices)
-        # Select the first subject of this type
-        push!(subjects_to_plot, type_indices[1])
-    end
-end
 
 # Generate the combined model fit figure using our improved function
 create_combined_model_fit_figure(test_data, models, "ohashi_rich")
