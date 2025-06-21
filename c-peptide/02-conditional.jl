@@ -1,5 +1,5 @@
 # Model fit to the train data and evaluation on the test data
-train_model = true
+train_model = false
 figures = true
 folder = "MLE"
 dataset = "ohashi_reduced"
@@ -243,76 +243,45 @@ if figures
     save("figures/$folder/individual_fits_$dataset.$extension", individual_fits_figure, px_per_unit=4)
     
 
-    error_correlation(test_data, test_data.types, objectives_test, folder, dataset)
-    euclidean_distance(test_data, objectives_test, test_data.types, folder, dataset)
-    zscore_correlation(test_data, objectives_test, test_data.types, folder, dataset)
+    # error_correlation(test_data, test_data.types, objectives_test, folder, dataset)
+    # euclidean_distance(test_data, objectives_test, test_data.types, folder, dataset)
+    # zscore_correlation(test_data, objectives_test, test_data.types, folder, dataset)
     
-    # Density plot of beta values for both train and test data
-    density_figure = let fig
-        fig = Figure(size = (800, 400), fontsize=8pt, font=FONTS.regular)
-        
-        # Training data density plot
-        ax_train = Axis(fig[1,1], 
-                       xlabel="β", 
-                       ylabel="Density",
-                       title="Density of β values (Training Data)")
+# Density plot of beta values for test data only
+density_figure = let fig
+    fig = Figure(size = (400, 400), fontsize=14, font=FONTS.regular)
+    
+    # Test data density plot
+    ax_test = Axis(fig[1,1], 
+                  xlabel="β", 
+                  ylabel="Density",
+                  title="Density of β values (Test Data)")
 
-        # overall density plot for training data
-        density!(ax_train, betas_train, 
-                color=Makie.wong_colors()[4], 
-                strokecolor=Makie.wong_colors()[4],
+    xlims!(ax_test, -10,10)
+    # overall density plot for test data
+    density!(ax_test, betas_test, 
+            color=Makie.wong_colors()[4], 
+            strokecolor=Makie.wong_colors()[4],
+            strokewidth=2,
+            label="Overall")
+    
+    # Create density plot for each type in test data
+    for (i, type) in enumerate(unique(test_data.types))
+        type_indices = test_data.types .== type
+        beta_values = betas_test[type_indices]
+        
+        density!(ax_test, beta_values, 
+                color=(Makie.wong_colors()[i], 0.6),
+                strokecolor=Makie.wong_colors()[i],
                 strokewidth=2,
-                label="Overall")
-        
-        # Create density plot for each type in training data
-        for (i, type) in enumerate(unique(train_data.types))
-            type_indices = train_data.types .== type
-            beta_values = betas_train[type_indices]
-            
-            density!(ax_train, beta_values, 
-                    color=(Makie.wong_colors()[i], 0.6),
-                    strokecolor=Makie.wong_colors()[i],
-                    strokewidth=2,
-                    label=type)
-        end
-        
-        # Add legend for training plot
-        axislegend(ax_train, position=:rt)
-        
-        # Test data density plot
-        ax_test = Axis(fig[1,2], 
-                      xlabel="β", 
-                      ylabel="Density",
-                      title="Density of β values (Test Data)")
-
-        # overall density plot for test data
-        density!(ax_test, betas_test, 
-                color=Makie.wong_colors()[4], 
-                strokecolor=Makie.wong_colors()[4],
-                strokewidth=2,
-                label="Overall")
-        
-        # Create density plot for each type in test data
-        for (i, type) in enumerate(unique(test_data.types))
-            type_indices = test_data.types .== type
-            beta_values = betas_test[type_indices]
-            
-            density!(ax_test, beta_values, 
-                    color=(Makie.wong_colors()[i], 0.6),
-                    strokecolor=Makie.wong_colors()[i],
-                    strokewidth=2,
-                    label=type)
-        end
-        
-        # Add legend for test plot
-        axislegend(ax_test, position=:rt)
-        
-        # Link y-axes for easy comparison
-        linkyaxes!(ax_train, ax_test)
-        
-        fig
+                label=type)
     end
+    
+    # Add legend
+    axislegend(ax_test, position=:rt)
+    
+    fig
 
-    save("figures/$folder/beta_density_$dataset.$extension", density_figure, px_per_unit=4)
-
+    save("figures/$folder/beta_density_$dataset.$extension", fig, px_per_unit=4)
+end
 end

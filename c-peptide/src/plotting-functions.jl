@@ -395,49 +395,16 @@ function error_correlation(data, types, objectives, folder, dataset)
     save("figures/$folder/error_correlations_$dataset.$extension", fig, px_per_unit=4)
 end
 
-function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, test_data, folder, dataset)
-    fig = Figure(size=(1600, 600))
+function beta_posterior(turing_model_test, advi_model_test, test_data, folder, dataset)
+    fig = Figure(size=(400, 400))
 
-    # Extract posterior samples for beta
-    _, sym2range = bijector(turing_model_train, Val(true))
-    z = rand(advi_model, 100_000)
-    sampled_betas = z[union(sym2range[:β]...), :] # sampled beta parameters
-
+    # Extract posterior samples for beta (test data only)
     _, sym2range_test = bijector(turing_model_test, Val(true))
     z_test = rand(advi_model_test, 100_000)
     sampled_betas_test = z_test[union(sym2range_test[:β]...), :] # sampled beta parameters
 
-
-    # First plot - training beta
-    ax1 = Axis(fig[1, 1],
-        xlabel="β",
-        ylabel="Density",
-        title="Posterior Distribution of β (training data)",
-        limits=(-10, 10, nothing, nothing)  # Limit x-axis to 0-5
-    )
-
-    # Plot overall density
-    density!(ax1, vec(sampled_betas), color=(Makie.wong_colors()[4], 0.5), label="Overall")
-
-    # Plot density by subject type
-    subject_types = unique(train_data.types[indices_train]) # doesnt matter test or train
-
-    for (i, type_val) in enumerate(subject_types)
-        type_indices = findall(t -> t == type_val, train_data.types[indices_train])
-        type_betas = sampled_betas[type_indices, :]
-        density!(ax1, vec(type_betas), color=(Makie.wong_colors()[i], 0.6),
-            strokecolor=Makie.wong_colors()[i],
-            strokewidth=2, label=type_val)
-    end
-
-    # Add vertical line for the mean
-    mean_beta = mean(sampled_betas)
-    vlines!(ax1, mean_beta, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
-
-    Legend(fig[1, 2], ax1)
-
-    # Second plot - beta test data
-    ax2 = Axis(fig[1, 3],
+    # Plot - beta test data
+    ax = Axis(fig[1, 1],
         xlabel="β",
         ylabel="Density",
         title="Posterior Distribution of β (test data)",
@@ -445,25 +412,29 @@ function beta_posterior(turing_model_train, advi_model, turing_model_test, advi_
     )
 
     # Plot overall density
-    density!(ax2, vec(sampled_betas_test), color=(Makie.wong_colors()[4], 0.5), label="Overall")
+    density!(ax, vec(sampled_betas_test), color=(Makie.wong_colors()[4], 0.5), label="Overall")
 
     # Plot density by subject type
+    subject_types = unique(test_data.types)
+
     for (i, type_val) in enumerate(subject_types)
         type_indices = findall(t -> t == type_val, test_data.types)
         type_betas = sampled_betas_test[type_indices, :]
-        density!(ax2, vec(type_betas), color=(Makie.wong_colors()[i], 0.6),
+        density!(ax, vec(type_betas), color=(Makie.wong_colors()[i], 0.6),
             strokecolor=Makie.wong_colors()[i],
             strokewidth=2, label=type_val)
     end
 
     # Add vertical line for the mean
     mean_beta_test = mean(sampled_betas_test)
-    vlines!(ax2, mean_beta_test, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
+    vlines!(ax, mean_beta_test, color=Makie.wong_colors()[5], linestyle=:dash, linewidth=2, label="Mean")
 
-    Legend(fig[1, 4], ax2)
+    # Add legend
+    axislegend(ax, position=:rt)
 
     save("figures/$folder/beta_posterior_$dataset.$extension", fig, px_per_unit=4)
 end
+
 
 function euclidean_distance(test_data, objectives_current, current_types, folder, dataset)
     fig = Figure(size=(800, 600))

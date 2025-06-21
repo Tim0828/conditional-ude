@@ -891,3 +891,23 @@ function all_models_individual_fits_figure(test_data, models, models_test, datas
         ], ["MLE", "Partial Pooling", "No Pooling", "Data"], orientation=:horizontal, tellwidth=false, tellheight=false, labelsize=16)
     save("figures/combined_model_fit_$dataset.png", fig, px_per_unit=4)
 end
+
+
+function load_betas(dataset, model_type)
+    # Load the beta parameters from the JLD2 file
+    file_path = "data/$model_type/betas_$dataset.jld2"
+    if isfile(file_path)
+        try
+            betas = jldopen(file_path) do file
+                file["betas"]
+            end
+            return betas
+        catch e
+            println("Error loading betas from $file_path: $e")
+            return missing
+        end
+    else
+        println("File not found: $file_path")
+        return missing
+    end
+end

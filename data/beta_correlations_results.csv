@@ -5,33 +5,33 @@ MLE,Ohashi (full),Age,0.632,0.0,true
 MLE,Ohashi (full),Insulin Sensitivity,-0.603,0.0,true
 MLE,Ohashi (full),Body Weight,0.319,0.062,false
 MLE,Ohashi (full),BMI,0.377,0.026,true
-partial_pooling,Ohashi (full),First Phase Clamp,-0.838,0.0,true
-partial_pooling,Ohashi (full),Second Phase Clamp,-0.848,0.0,true
-partial_pooling,Ohashi (full),Age,0.544,0.001,true
-partial_pooling,Ohashi (full),Insulin Sensitivity,-0.341,0.045,true
-partial_pooling,Ohashi (full),Body Weight,0.135,0.441,false
-partial_pooling,Ohashi (full),BMI,0.196,0.258,false
-no_pooling,Ohashi (full),First Phase Clamp,-0.715,0.0,true
-no_pooling,Ohashi (full),Second Phase Clamp,-0.765,0.0,true
-no_pooling,Ohashi (full),Age,0.408,0.015,true
-no_pooling,Ohashi (full),Insulin Sensitivity,-0.223,0.197,false
-no_pooling,Ohashi (full),Body Weight,0.01,0.954,false
-no_pooling,Ohashi (full),BMI,0.096,0.582,false
-MLE,Ohashi (reduced),First Phase Clamp,-0.096,0.715,false
-MLE,Ohashi (reduced),Second Phase Clamp,0.066,0.801,false
-MLE,Ohashi (reduced),Age,-0.467,0.059,false
-MLE,Ohashi (reduced),Insulin Sensitivity,-0.071,0.786,false
-MLE,Ohashi (reduced),Body Weight,-0.167,0.523,false
-MLE,Ohashi (reduced),BMI,-0.377,0.135,false
-partial_pooling,Ohashi (reduced),First Phase Clamp,-0.069,0.794,false
-partial_pooling,Ohashi (reduced),Second Phase Clamp,-0.233,0.368,false
-partial_pooling,Ohashi (reduced),Age,0.323,0.206,false
-partial_pooling,Ohashi (reduced),Insulin Sensitivity,-0.002,0.993,false
-partial_pooling,Ohashi (reduced),Body Weight,0.199,0.445,false
-partial_pooling,Ohashi (reduced),BMI,0.311,0.224,false
-no_pooling,Ohashi (reduced),First Phase Clamp,0.157,0.548,false
-no_pooling,Ohashi (reduced),Second Phase Clamp,-0.096,0.715,false
-no_pooling,Ohashi (reduced),Age,0.07,0.789,false
-no_pooling,Ohashi (reduced),Insulin Sensitivity,0.094,0.719,false
-no_pooling,Ohashi (reduced),Body Weight,0.025,0.926,false
-no_pooling,Ohashi (reduced),BMI,0.174,0.504,false
+partial_pooling,Ohashi (full),First Phase Clamp,-0.803,0.0,true
+partial_pooling,Ohashi (full),Second Phase Clamp,-0.797,0.0,true
+partial_pooling,Ohashi (full),Age,0.511,0.002,true
+partial_pooling,Ohashi (full),Insulin Sensitivity,-0.347,0.041,true
+partial_pooling,Ohashi (full),Body Weight,0.138,0.428,false
+partial_pooling,Ohashi (full),BMI,0.191,0.273,false
+no_pooling,Ohashi (full),First Phase Clamp,-0.77,0.0,true
+no_pooling,Ohashi (full),Second Phase Clamp,-0.808,0.0,true
+no_pooling,Ohashi (full),Age,0.521,0.001,true
+no_pooling,Ohashi (full),Insulin Sensitivity,-0.302,0.077,false
+no_pooling,Ohashi (full),Body Weight,0.094,0.59,false
+no_pooling,Ohashi (full),BMI,0.146,0.401,false
+MLE,Ohashi (reduced),First Phase Clamp,-0.587,0.005,true
+MLE,Ohashi (reduced),Second Phase Clamp,-0.521,0.015,true
+MLE,Ohashi (reduced),Age,0.496,0.022,true
+MLE,Ohashi (reduced),Insulin Sensitivity,-0.443,0.044,true
+MLE,Ohashi (reduced),Body Weight,0.351,0.119,false
+MLE,Ohashi (reduced),BMI,0.362,0.106,false
+partial_pooling,Ohashi (reduced),First Phase Clamp,-0.76,0.0,true
+partial_pooling,Ohashi (reduced),Second Phase Clamp,-0.816,0.0,true
+partial_pooling,Ohashi (reduced),Age,0.393,0.078,false
+partial_pooling,Ohashi (reduced),Insulin Sensitivity,-0.339,0.133,false
+partial_pooling,Ohashi (reduced),Body Weight,0.1,0.666,false
+partial_pooling,Ohashi (reduced),BMI,0.23,0.316,false
+no_pooling,Ohashi (reduced),First Phase Clamp,-0.801,0.0,true
+no_pooling,Ohashi (reduced),Second Phase Clamp,-0.845,0.0,true
+no_pooling,Ohashi (reduced),Age,0.446,0.043,true
+no_pooling,Ohashi (reduced),Insulin Sensitivity,-0.392,0.079,false
+no_pooling,Ohashi (reduced),Body Weight,0.156,0.5,false
+no_pooling,Ohashi (reduced),BMI,0.287,0.207,false

@@ -152,7 +152,7 @@ function cude_vi(CONFIG)
         mse_violin(objectives_current, test_data.types, folder, CONFIG.dataset)
         all_model_fits(test_data.cpeptide, models_test, nn_params, betas_test, test_data.timepoints, test_data.types, folder, CONFIG.dataset)
         error_correlation(test_data, test_data.types, objectives_current, folder, CONFIG.dataset)
-        beta_posterior(turing_model_train, advi_model, turing_model_test, advi_model_test, indices_train, train_data, test_data, folder, CONFIG.dataset)
+        beta_posterior(turing_model_test, advi_model_test, test_data, folder, dataset)
 
         samples = 10_000
         beta_posteriors(turing_model_test, advi_model_test, folder, CONFIG.dataset, samples)
@@ -187,7 +187,7 @@ for pooling_type in pooling_types
             dataset=dataset,
 
             # Training settings
-            train_model=true, 
+            train_model=false, 
             quick_train=false,  # Set to true for faster testing
 
 
