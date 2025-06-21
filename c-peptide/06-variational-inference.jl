@@ -177,7 +177,7 @@ end
 
 pooling_types = ["partial_pooling", "no_pooling"]
 # datasets 
-datasets = ["ohashi_low", "ohashi_rich"]
+datasets = ["ohashi_reduced", "ohashi_full"]
 
 for pooling_type in pooling_types
     for dataset in datasets
@@ -187,7 +187,8 @@ for pooling_type in pooling_types
             dataset=dataset,
 
             # Training settings
-            train_model=true, quick_train=true,  # Set to true for faster testing
+            train_model=true, 
+            quick_train=false,  # Set to true for faster testing
 
 
             # Analysis settings

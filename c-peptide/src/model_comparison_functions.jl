@@ -22,9 +22,9 @@ end
 
 # Function to convert dataset names for display/saving
 function convert_dataset_name(dataset)
-    if dataset == "ohashi_rich"
+    if dataset == "ohashi_full"
         return "Ohashi (full)"
-    elseif dataset == "ohashi_low"
+    elseif dataset == "ohashi_reduced"
         return "Ohashi (reduced)"
     else
         return dataset
@@ -353,12 +353,12 @@ function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, te
     ylims!(ax, 0, nothing)  # Set y-axis limits
     # Define colors for each dataset
     dataset_colors = Dict(
-        "Ohashi_Rich" => Makie.wong_colors()[1],
-        "Ohashi_Low" => Makie.wong_colors()[2]
+        "Ohashi Full" => Makie.wong_colors()[1],
+        "Ohashi Reduced" => Makie.wong_colors()[2]
     )
 
     unique_types = ["NGT", "IGT", "T2DM"]
-    dataset_order = ["Ohashi_Rich", "Ohashi_Low"]
+    dataset_order = ["Ohashi Full", "Ohashi Reduced"]
     jitter_width = 0.08
     violin_width = 0.35
 
@@ -371,7 +371,7 @@ function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, te
 
         for (dataset_idx, dataset_name) in enumerate(dataset_order)
             # Get MSE data for this type and dataset
-            if dataset_name == "Ohashi_Rich"
+            if dataset_name == "Ohashi Full"
                 mse_values = mse_rich[type_indices_rich]
             else  # Ohashi_Low
                 mse_values = mse_low[type_indices_low]
@@ -414,7 +414,7 @@ function create_datasets_comparison_violin(mse_rich, mse_low, test_data_rich, te
         [PolyElement(color=(dataset_colors[dataset], 0.6)) for dataset in dataset_order]...,
         MarkerElement(color=:black, marker=:diamond, markersize=8)
     ]
-    legend_labels = ["Ohashi Rich", "Ohashi Low", "Mean"]
+    legend_labels = ["Ohashi Full", "Ohashi Reduced", "Mean"]
     Legend(fig[1, 2], legend_elements, legend_labels, "Dataset")
 
     return fig
@@ -432,12 +432,12 @@ function create_all_methods_datasets_violin(models)
 
     # Define colors for each dataset
     dataset_colors = Dict(
-        "ohashi_rich" => Makie.wong_colors()[1],
-        "ohashi_low" => Makie.wong_colors()[2]
+        "ohashi_full" => Makie.wong_colors()[1],
+        "ohashi_reduced" => Makie.wong_colors()[2]
     )
 
     method_order = ["MLE", "partial_pooling", "no_pooling"]
-    dataset_order = ["ohashi_rich", "ohashi_low"]
+    dataset_order = ["ohashi_full", "ohashi_reduced"]
     jitter_width = 0.12
     violin_width = 0.3
 
@@ -663,9 +663,9 @@ end
 
 
 # Function to create a combined model fit figure showing all three model types
-function create_combined_model_fit_figure(test_data, models, dataset="ohashi_rich")
+function create_combined_model_fit_figure(test_data, models, dataset="ohashi_full")
     fig = Figure(size=(1200, 400))
-    if dataset == "ohashi_rich"
+    if dataset == "ohashi_full"
         dataset_name = "Ohashi (Full)"
         subjects_to_plot = [13, 19, 31]
     else
@@ -806,7 +806,7 @@ function all_models_individual_fits_figure(test_data, models, models_test, datas
         fontsize=20,
         font=FONTS.regular)
 
-    if dataset == "ohashi_rich"
+    if dataset == "ohashi_full"
         dataset_name = "Full Dataset"
 
     else
@@ -867,7 +867,7 @@ function all_models_individual_fits_figure(test_data, models, models_test, datas
 
         # Add the data points
         scatter!(axes[i], test_data.timepoints, test_data.cpeptide[i, :],
-            color=:transparent, strokecolor=Makie.wong_colors()[5], strokewidth=2, markersize=6, label="Data", marker=:dtriangle)
+            color=:transparent, strokecolor=Makie.wong_colors()[4], strokewidth=2, markersize=8, label="Data", marker=:dtriangle)
 
     end
 

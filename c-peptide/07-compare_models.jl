@@ -12,14 +12,14 @@ types = ["T2DM", "NGT", "IGT"]
 # model types 
 model_types = ["MLE", "partial_pooling", "no_pooling"]
 # datasets 
-datasets = ["ohashi_rich", "ohashi_low"]
+datasets = ["ohashi_full", "ohashi_reduced"]
 # load models
 models = load_models(types, model_types, datasets)
 # Load the data to obtain indices for the types
-train_data_low, test_data_low = jldopen("data/ohashi_low.jld2") do file
+train_data_low, test_data_low = jldopen("data/ohashi_reduced.jld2") do file
     file["train"], file["test"]
 end
-train_data, test_data = jldopen("data/ohashi_rich.jld2") do file
+train_data, test_data = jldopen("data/ohashi_full.jld2") do file
     file["train"], file["test"]
 end
 
@@ -42,7 +42,7 @@ for dataset in datasets
     mse_mle = models["$(dataset)_MLE"]["mse"]
     mse_partial = models["$(dataset)_partial_pooling"]["mse"]
     mse_no_pool = models["$(dataset)_no_pooling"]["mse"]    # Create combined violin plot for methods comparison within dataset
-    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+    current_test_data = dataset == "ohashi_full" ? test_data : test_data_low
     fig = create_methods_comparison_violin(mse_mle, mse_partial, mse_no_pool, current_test_data, " - $dataset Dataset")
 
     # Save the plot
@@ -67,7 +67,7 @@ println("#"^80)
 
 for dataset in datasets
     # Get the appropriate test data
-    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+    current_test_data = dataset == "ohashi_full" ? test_data : test_data_low
 
     for subject_type in types
         println("\n" * "-"^50)
@@ -108,8 +108,8 @@ for model_type in model_types
     println("MODEL TYPE: $model_type")
     println("-"^50)
     # Get MSE values for each dataset
-    mse_rich = models["ohashi_rich_$model_type"]["mse"]
-    mse_low = models["ohashi_low_$model_type"]["mse"]    # Create combined violin plot for dataset comparison
+    mse_rich = models["ohashi_full_$model_type"]["mse"]
+    mse_low = models["ohashi_reduced_$model_type"]["mse"]    # Create combined violin plot for dataset comparison
     fig = create_datasets_comparison_violin(mse_rich, mse_low, test_data, test_data_low, model_type)
 
     # Save the plot
@@ -142,7 +142,7 @@ summary_results = DataFrame(
 
 # Fill summary table with all comparisons
 for dataset in datasets
-    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+    current_test_data = dataset == "ohashi_full" ? test_data : test_data_low
     # General comparisons (all subjects)
     mse_mle = models["$(dataset)_MLE"]["mse"]
     mse_partial = models["$(dataset)_partial_pooling"]["mse"]
@@ -172,8 +172,8 @@ end
 
 # Between dataset comparisons
 for model_type in model_types
-    mse_rich = models["ohashi_rich_$model_type"]["mse"]
-    mse_low = models["ohashi_low_$model_type"]["mse"]
+    mse_rich = models["ohashi_full_$model_type"]["mse"]
+    mse_low = models["ohashi_reduced_$model_type"]["mse"]
 
     add_unpaired_to_summary!(summary_results, "Cross_Dataset", "All", "$model_type (full)", "$model_type (reduced)", mse_rich, mse_low)
 end
@@ -216,7 +216,7 @@ println("#"^80)
 all_correlations = DataFrame()
 
 for dataset in datasets
-    current_test_data = dataset == "ohashi_rich" ? test_data : test_data_low
+    current_test_data = dataset == "ohashi_full" ? test_data : test_data_low
 
     for model_type in model_types
         # Get betas for this model and dataset
@@ -408,7 +408,7 @@ for dataset in datasets
     no_pooling_dic = dic_values["no_pooling"][dataset]
 
     # Convert dataset name for display
-    dataset_display = dataset == "ohashi_rich" ? "Ohashi (Full)" : "Ohashi (Reduced)"
+    dataset_display = dataset == "ohashi_full" ? "Ohashi (Full)" : "Ohashi (Reduced)"
 
     if !ismissing(partial_dic) && !ismissing(no_pooling_dic)
         dic_diff = partial_dic - no_pooling_dic
@@ -467,11 +467,11 @@ models_test_low = [
 ]
 
 # Generate the combined model fit figure using our improved function
-all_models_individual_fits_figure(test_data, models, models_test, "ohashi_rich")
+all_models_individual_fits_figure(test_data, models, models_test, "ohashi_full")
 
 println("Combined model fit figure saved: figures/combined_model_fit_full.png")
 
-all_models_individual_fits_figure(test_data_low, models, models_test_low, "ohashi_low")
+all_models_individual_fits_figure(test_data_low, models, models_test_low, "ohashi_reduced")
 
 println("Combined model fit figure saved: figures/combined_model_fit_reduced.png")
 

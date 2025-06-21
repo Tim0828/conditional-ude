@@ -252,14 +252,13 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
     for (model_index, initial_nn) in enumerate(initial_nn_sets)        # estimate priors
-        local priors_train = estimate_priors(train_data, models_train, initial_nn, indices_train)
+        # local priors_train = estimate_priors(train_data, models_train, initial_nn, indices_train)
         # initiate turing model
         local turing_model_train = partial_pooled(
             train_data.cpeptide[indices_train, :],
             train_data.timepoints,
             models_train[indices_train],
-            initial_nn,
-            priors_train
+            initial_nn
         )
 
         # train conditional model
@@ -323,18 +322,18 @@ function train_ADVI_models_partial_pooling(initial_nn_sets, train_data, indices_
     println("NN params: ", nn_params)
     # FIX: Retrain training betas with final nn_params for fair evaluation
     println("Retraining training betas with final nn_params for fair evaluation...")
-    priors_train_final = estimate_priors2(betas)
+    # priors_train_final = estimate_priors2(betas_training)
     turing_model_train_final = partial_pooled_test(
         train_data.cpeptide[indices_train, :],
         train_data.timepoints,
         models_train[indices_train],
-        nn_params,  # Use the selected nn_params
-        priors_train_final
+        nn_params  # Use the selected nn_params
+        
     )
     # Retrain betas that are compatible with the selected nn_params
     betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 8, true)
-    # Replace the old betas with corrected ones
-    betas = betas_corrected
+    # Replace the old betas with new ones
+    betas_training = betas_corrected
     println("Training betas corrected for fair train vs test comparison")
 
     # Only train test betas for the best model
@@ -364,7 +363,6 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
     # Add progress bar
     prog = Progress(length(initial_nn_sets); dt=1, desc="Training ADVI models... ", showspeed=true, color=:firebrick)
     for (j, initial_nn) in enumerate(initial_nn_sets)
-        # estimate priors
         # initiate turing model
         local turing_model_train = no_pooling(
             train_data.cpeptide[indices_train, :],
@@ -413,13 +411,12 @@ function train_ADVI_models_no_pooling(initial_nn_sets, train_data, indices_train
     advi_model = advi_models[best_result.j]
 
     println("Retraining training betas with final nn_params for fair evaluation...")
-    priors_train_final = estimate_priors2(betas)
+
     turing_model_train_final = no_pooling_test(
         train_data.cpeptide[indices_train, :],
         train_data.timepoints,
         models_train[indices_train],
-        nn_params,  # Use the selected nn_params
-        priors_train_final
+        nn_params  # Use the selected nn_param
     )
     # Retrain betas that are compatible with the selected nn_params
     betas_corrected, _ = train_ADVI(turing_model_train_final, advi_iterations, 10_000, 8, true)
@@ -450,11 +447,11 @@ end
 function estimate_priors2(train_betas)
     # Estimate priors based on the training betas
     μ_beta_estimate = mean(train_betas)
-    σ_beta_estimate = std(train_betas)
+    σ_beta_estimate = 1.5 * std(train_betas)
     alpha = 3.0 # Shape parameter for InverseGamma
     beta = 2 * σ_beta_estimate # Scale parameter for InverseGamma
     return (
-        μ_beta_prior=Normal(μ_beta_estimate, σ_beta_estimate),
+        μ_beta_prior=Normal(μ_beta_estimate,  σ_beta_estimate),
         σ_beta_prior=InverseGamma(alpha, beta),
         μ_beta_estimate=μ_beta_estimate
     )
